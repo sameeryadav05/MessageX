@@ -1,16 +1,18 @@
 {
   "name": "messagex",
   "version": "1.0.0",
-  "description": "Different components of MessageX",
-  "main": "index.js",
-  "directories": {
-    "example": "examples"
-  },
+  "private": "true",
+  "description": "A self-hosted message broker",
+  "workspaces": [
+    "apps/broker"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev:broker": "npm run dev --workspace=@messagex/broker",
+    "build:broker": "npm run build --workspace=@messagex/broker",
+    "test:broker": "npm run test --workspace=@messagex/broker"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
+  "type": "module",
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
 }

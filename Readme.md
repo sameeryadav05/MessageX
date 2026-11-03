@@ -1,4 +1,4 @@
-        Different components of MessageX      
+# Different components of MessageX      
 
                          MESSAGE X
                              │
@@ -25,7 +25,7 @@
                               ▼             ▼             ▼
                           Consumer      Consumer      Consumer
 
-Database Postgresql Role : 
+# Database Postgresql Role : 
 
                      MessageX Broker
                        │
@@ -44,71 +44,11 @@ Database Postgresql Role :
      messages / consumers /
      connections / delivery
 
-project folder structure : 
-    messagex/
-│
-├── apps/
-│   │
-│   ├── broker/
-│   │   ├── src/
-│   │   │   ├── server/
-│   │   │   ├── protocol/
-│   │   │   ├── connection/
-│   │   │   ├── auth/
-│   │   │   ├── queues/
-│   │   │   ├── exchanges/
-│   │   │   ├── routing/
-│   │   │   ├── consumers/
-│   │   │   ├── delivery/
-│   │   │   ├── persistence/
-│   │   │   └── metrics/
-│   │   │
-│   │   ├── tests/
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   │
-│   ├── dashboard/
-│   │   ├── src/
-│   │   ├── public/
-│   │   └── package.json
-│   │
-│   └── docs/
-│
-├── packages/
-│   │
-│   ├── protocol/
-│   │
-│   ├── client-js/
-│   │
-│   └── shared/
-│
-├── clients/
-│   │
-│   ├── python/
-│   │
-│   └── java/
-│
-├── database/
-│   │
-│   ├── migrations/
-│   └── seeds/
-│
-├── docker/
-│
-├── examples/
-│   ├── node-producer/
-│   ├── node-consumer/
-│   ├── python-worker/
-│   ├── java-worker/
-│   ├── order-processing/
-│   └── microservices-demo/
-│
-├── docker-compose.yml
-├── package.json
-├── README.md
-└── .gitignore
+# project folder structure : 
 
-Role of apps/broker/src
+![alt text](image-1.png)
+
+# Role of apps/broker/src
 
 Directory	Responsibility
 server	        Start and stop TCP and HTTP servers
@@ -123,3 +63,36 @@ delivery	    Deliver messages and handle acknowledgements
 persistence	    PostgreSQL integration
 metrics	        Broker monitoring
 management	    Express routes, controllers and middleware
+
+# HTTP Server vs TCP Server
+
+![alt text](image.png)
+
+## TCP Server helps maintain persistence connection between application and messageX broker
+
+Application A
+      │
+      │ TCP connection
+      ▼
+MessageX TCP Server
+      │
+      │ Persistent connection
+      ▼
+Application B
+
+# messagex protocol
+
+messageX uses length-prefixed JSON instead of TCP frames
+TCP might deliver the data in multiple chunks, or combine several messages into one chunk.
+Therefore, we need our own framing mechanism.
+
+![alt text](image-2.png)
+
+![alt text](image-3.png)
+
+Notice requestId.
+
+It allows the SDK to match responses with their original requests, even when multiple requests are in progress on the same TCP connection. This is called request-response correlation.
+
+
+

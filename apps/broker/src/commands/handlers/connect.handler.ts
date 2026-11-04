@@ -26,6 +26,8 @@ export const handleConnect: CommandHandlerFunction = ({
     };
   }
 
+  const normalizedClientName = clientName.trim();
+
   // Ensure the connection is still active.
   if (!connection.isConnected) {
     return {
@@ -40,7 +42,26 @@ export const handleConnect: CommandHandlerFunction = ({
     };
   }
 
-  // Return a successful CONNECT response.
+  // Prevent changing identity on an already registered connection.
+  if (
+    connection.clientName !== null &&
+    connection.clientName !== normalizedClientName
+  ) {
+    return {
+      version: PROTOCOL_VERSION,
+      type: "RESPONSE",
+      requestId: command.requestId,
+      success: false,
+      error: {
+        code: "ERR_ALREADY_CONNECTED",
+        message: "This connection is already registered with another client name"
+      }
+    };
+  }
+
+  // Save the client's identity in the connection.
+  connection.registerClient(normalizedClientName);
+
   return {
     version: PROTOCOL_VERSION,
     type: "RESPONSE",
@@ -48,7 +69,7 @@ export const handleConnect: CommandHandlerFunction = ({
     success: true,
     payload: {
       connectionId: connection.id,
-      clientName: clientName.trim(),
+      clientName: connection.clientName,
       protocolVersion: PROTOCOL_VERSION
     }
   };

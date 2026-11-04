@@ -15,6 +15,9 @@ export class ClientConnection {
 
   private connected = true;
 
+  // Client identity. Null until CONNECT succeeds.
+  private registeredClientName: string | null = null;
+
   constructor(
     private readonly socket: net.Socket,
     private readonly onMessage: (
@@ -76,6 +79,20 @@ export class ClientConnection {
     this.socket.write(frame);
   }
 
+  // Register the client identity after a successful CONNECT.
+  registerClient(clientName: string): void {
+    if (!this.isConnected) {
+      throw new Error("Cannot register a closed connection");
+    }
+
+    this.registeredClientName = clientName;
+  }
+
+  // Read-only access to the registered client name.
+  get clientName(): string | null {
+    return this.registeredClientName;
+  }
+
   close(): void {
     if (!this.connected) {
       return;
@@ -93,7 +110,9 @@ export class ClientConnection {
 
     this.decoder.reset();
 
-    console.log(`[Connection ${this.id}] Closed`);
+    console.log(
+      `[Connection ${this.id}] Closed (client: ${this.clientName ?? "unregistered"})`
+    );
 
     this.onClose(this);
   }

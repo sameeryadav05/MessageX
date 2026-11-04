@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/frame.test.ts tests/protocol.test.ts"
+    "test": "tsx --test tests/frame.test.ts tests/protocol.test.ts tests/command-handler.test.ts"
   },
   "type": "module",
   "devDependencies": {

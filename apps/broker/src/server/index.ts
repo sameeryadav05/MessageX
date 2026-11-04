@@ -16,7 +16,7 @@ const tcpServer = new TcpServer();
 tcpServer.start(TCP_PORT);
 
 function shutdown(): void {
-  console.log("\n[MessageX] Shutting down...");
+  console.log("\n MessageX Shutting down...");
 
   httpServer.close();
 

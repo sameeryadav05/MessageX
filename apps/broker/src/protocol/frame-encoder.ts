@@ -6,7 +6,7 @@ import {
   MAX_FRAME_SIZE,
   MIN_FRAME_SIZE
 } from "./protocol.constants.js";
-
+ 
 export class FrameEncoder {
   static encode(message: unknown): Buffer {
     let json: string | undefined;

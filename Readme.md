@@ -95,4 +95,4 @@ Notice requestId.
 It allows the SDK to match responses with their original requests, even when multiple requests are in progress on the same TCP connection. This is called request-response correlation.
 
 
-
+![alt text](image-4.png)

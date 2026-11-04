@@ -3,14 +3,18 @@ import net from "node:net";
 
 import { ClientConnection } from "../connection/client-connection.js";
 import { ConnectionManager } from "../connection/connection-manager.js";
+import { CommandHandler } from "../commands/command.handler.js";
 
 export class TcpServer {
   private readonly server: net.Server;
 
   public readonly connectionManager: ConnectionManager;
 
+  private readonly commandHandler: CommandHandler;
+
   constructor() {
     this.connectionManager = new ConnectionManager();
+    this.commandHandler = new CommandHandler();
 
     this.server = net.createServer((socket) => {
       console.log(
@@ -21,11 +25,42 @@ export class TcpServer {
         socket,
 
         // Called whenever a valid protocol message arrives.
-        (client, message) => {
-          console.log(
-            `[TCP] Message received from ${client.id}:`,
-            message
-          );
+        async (client, message) => {
+          // Only process COMMAND messages.
+          if (message.type !== "COMMAND") {
+            console.warn(
+              `[TCP] Unexpected message type from ${client.id}: ${message.type}`
+            );
+            return;
+          }
+
+          try {
+            // Dispatch command to its respective handler.
+            const response = await this.commandHandler.handle(
+              client,
+              message
+            );
+
+            // Send the response back through TCP.
+            client.send(response);
+
+          } catch (error) {
+            console.error(
+              `[TCP] Command execution failed for ${client.id}:`,
+              error
+            );
+
+            client.send({
+              version: 1,
+              type: "RESPONSE",
+              requestId: message.requestId,
+              success: false,
+              error: {
+                code: "ERR_INTERNAL",
+                message: "Internal broker error"
+              }
+            });
+          }
         },
 
         // Called whenever the connection closes.

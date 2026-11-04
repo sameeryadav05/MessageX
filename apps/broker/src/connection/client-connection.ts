@@ -14,7 +14,7 @@ export class ClientConnection {
   private readonly decoder: FrameDecoder;
 
   private connected = true;
-
+  
   constructor(
     private readonly socket: net.Socket,
     private readonly onMessage: (

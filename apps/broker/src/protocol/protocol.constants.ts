@@ -20,3 +20,5 @@ export const FRAME_BYTE_ORDER = "BE";
 // MIN_FRAME_SIZE: Empty frames are not valid.
 
 // FRAME_BYTE_ORDER: We use big-endian.
+
+ 

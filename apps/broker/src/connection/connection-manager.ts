@@ -1,5 +1,5 @@
 
-import type { ProtocolMessage } from "../protocol/protocol.types.js";
+import type { ValidatedProtocolMessage } from "../protocol/protocol.schema.js";
 import { ClientConnection } from "./client-connection.js";
 
 export class ConnectionManager {
@@ -38,7 +38,7 @@ export class ConnectionManager {
     return this.connections.size;
   }
 
-  broadcast(message: ProtocolMessage): void {
+  broadcast(message: ValidatedProtocolMessage): void {
     for (const connection of this.connections.values()) {
       if (connection.isConnected) {
         connection.send(message);

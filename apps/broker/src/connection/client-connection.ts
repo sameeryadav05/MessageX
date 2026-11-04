@@ -6,7 +6,7 @@ import { FrameDecoder } from "../protocol/frame-decoder.js";
 import { FrameEncoder } from "../protocol/frame-encoder.js";
 import { ProtocolParser } from "../protocol/protocol.parser.js";
 
-import type { ProtocolMessage } from "../protocol/protocol.types.js";
+import type { ValidatedProtocolMessage } from "../protocol/protocol.schema.js";
 
 export class ClientConnection {
   public readonly id: string;
@@ -14,13 +14,13 @@ export class ClientConnection {
   private readonly decoder: FrameDecoder;
 
   private connected = true;
-  
+
   constructor(
     private readonly socket: net.Socket,
     private readonly onMessage: (
       connection: ClientConnection,
-      message: ProtocolMessage
-    ) => void,
+      message: ValidatedProtocolMessage
+    ) => void | Promise<void>,
     private readonly onClose: (
       connection: ClientConnection
     ) => void
@@ -35,14 +35,14 @@ export class ClientConnection {
   }
 
   private registerSocketEvents(): void {
-    this.socket.on("data", (chunk: Buffer) => {
+    this.socket.on("data", async (chunk: Buffer) => {
       try {
         const frames = this.decoder.push(chunk);
 
         for (const frame of frames) {
           const message = ProtocolParser.parse(frame);
 
-          this.onMessage(this, message);
+          await this.onMessage(this, message);
         }
       } catch (error) {
         console.error(
@@ -66,7 +66,7 @@ export class ClientConnection {
     });
   }
 
-  send(message: ProtocolMessage): void {
+  send(message: ValidatedProtocolMessage): void {
     if (!this.connected || this.socket.destroyed) {
       throw new Error("Connection is not available");
     }

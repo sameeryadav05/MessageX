@@ -14,5 +14,11 @@
   "type": "module",
   "allowScripts": {
     "esbuild@0.28.2": true
+  },
+  "dependencies": {
+    "dotenv": "^18.0.9"
+  },
+  "devDependencies": {
+    "@types/dotenv": "^6.1.1"
   }
 }

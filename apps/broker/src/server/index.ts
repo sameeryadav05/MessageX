@@ -1,6 +1,7 @@
 
 import { startHttpServer } from "./http.server.js";
 import { TcpServer } from "./tcp.server.js";
+import { runMigrations } from "../database/migration-runner.js";
 
 import {
   connectDatabase,
@@ -14,6 +15,7 @@ async function startMessageX(): Promise<void> {
 
   // Connect to PostgreSQL before starting the broker.
   await connectDatabase();
+  await runMigrations();
 
   const HTTP_PORT = Number(process.env.HTTP_PORT) || 3000;
   const TCP_PORT = Number(process.env.TCP_PORT) || 5678;

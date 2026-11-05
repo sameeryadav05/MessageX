@@ -1,7 +1,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-
+import { join } from "node:path";
 import { pool } from "./database.js";
 
 // Resolve the migrations directory.
@@ -39,8 +39,7 @@ export async function runMigrations(): Promise<void> {
         continue;
       }
 
-      const filePath = new URL(filename, `file://${MIGRATIONS_DIR}/`);
-      const sql = await readFile(filePath, "utf-8");
+const sql = await readFile(join(MIGRATIONS_DIR, filename), "utf-8");
 
       console.log(`[Migration] Running ${filename}`);
 

@@ -1,5 +1,6 @@
 
 import type { ClientConnection } from "../connection/client-connection.js";
+import { handleQueueDeclare } from "./handlers/queue-declare.handler.js";
 
 import type {
   ValidatedCommand,
@@ -20,9 +21,11 @@ export class CommandHandler {
 
   constructor() {
     this.handlers = new Map();
-
     // Register supported command handlers.
     this.handlers.set("CONNECT", handleConnect);
+
+    this.handlers.set("CONNECT", handleConnect);
+    this.handlers.set("QUEUE_DECLARE", handleQueueDeclare);
   }
 
   async handle(

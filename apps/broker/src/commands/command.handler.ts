@@ -1,5 +1,7 @@
 import type { ClientConnection } from "../connection/client-connection.js";
-import { handleBind } from "./handlers/bind.handler.js";
+
+import { ConsumerManager } from "../consumers/consumer.manager.js";
+
 import type {
   ValidatedCommand,
   ValidatedResponse
@@ -10,12 +12,16 @@ import type { CommandHandlerFunction } from "./command.types.js";
 import { handleConnect } from "./handlers/connect.handler.js";
 import { handleQueueDeclare } from "./handlers/queue-declare.handler.js";
 import { handleExchangeDeclare } from "./handlers/exchange-declare.handler.js";
+import { handleBind } from "./handlers/bind.handler.js";
 import { handlePublish } from "./handlers/publish.handler.js";
+import { handleConsume } from "./handlers/consume.handler.js";
 
 export class CommandHandler {
   private readonly handlers: Map<string, CommandHandlerFunction>;
+  private readonly consumerManager: ConsumerManager;
 
-  constructor() {
+  constructor(consumerManager = new ConsumerManager()) {
+    this.consumerManager = consumerManager;
     this.handlers = new Map();
 
     this.handlers.set("CONNECT", handleConnect);
@@ -23,6 +29,7 @@ export class CommandHandler {
     this.handlers.set("EXCHANGE_DECLARE", handleExchangeDeclare);
     this.handlers.set("BIND", handleBind);
     this.handlers.set("PUBLISH", handlePublish);
+    this.handlers.set("CONSUME", handleConsume);
   }
 
   async handle(
@@ -44,6 +51,10 @@ export class CommandHandler {
       };
     }
 
-    return handler({ connection, command });
+    return handler({
+      connection,
+      command,
+      consumerManager: this.consumerManager
+    });
   }
 }

@@ -4,17 +4,21 @@ import net from "node:net";
 import { ClientConnection } from "../connection/client-connection.js";
 import { ConnectionManager } from "../connection/connection-manager.js";
 import { CommandHandler } from "../commands/command.handler.js";
+import { ConsumerManager } from "../consumers/consumer.manager.js";
 
 export class TcpServer {
   private readonly server: net.Server;
 
   public readonly connectionManager: ConnectionManager;
+  
 
   private readonly commandHandler: CommandHandler;
+  private readonly consumerManager: ConsumerManager;
 
   constructor() {
-    this.connectionManager = new ConnectionManager();
-    this.commandHandler = new CommandHandler();
+  this.connectionManager = new ConnectionManager();
+  this.consumerManager = new ConsumerManager();
+  this.commandHandler = new CommandHandler(this.consumerManager);
 
     this.server = net.createServer((socket) => {
       console.log(
@@ -64,9 +68,16 @@ export class TcpServer {
         },
 
         // Called whenever the connection closes.
-        (client) => {
-          this.connectionManager.remove(client.id);
-        }
+    (client) => {
+      this.connectionManager.remove(client.id);
+
+      void this.consumerManager.removeConnection(client.id).catch((error) => {
+        console.error(
+          `[Consumer] Failed to recover messages for connection ${client.id}:`,
+          error
+        );
+      });
+    }
       );
 
       this.connectionManager.add(connection);

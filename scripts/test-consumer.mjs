@@ -61,12 +61,27 @@ socket.on("data", (chunk) => {
 
     const message = JSON.parse(body.toString("utf8"));
 
-    if (message.type === "EVENT") {
-      console.log("\nMESSAGE EVENT RECEIVED:");
-      console.dir(message, { depth: null });
-    } else {
-      socket.emit("message", message);
-    }
+if (message.type === "EVENT") {
+  console.log("\nMESSAGE EVENT RECEIVED:");
+  console.dir(message, { depth: null });
+
+  if (message.event === "MESSAGE_DELIVERED") {
+    const deliveryTag = message.payload.deliveryTag;
+
+    console.log("\nSending ACK for:", deliveryTag);
+
+    sendCommand("ACK", { deliveryTag })
+      .then((response) => {
+        console.log("\nACK successful:");
+        console.dir(response, { depth: null });
+      })
+      .catch((error) => {
+        console.error("\nACK failed:", error.message);
+      });
+  }
+} else {
+  socket.emit("message", message);
+}
   }
 });
 

@@ -163,4 +163,32 @@ export class ConsumerManager {
 
     await requeueMessagesForConnection(connectionId);
   }
+
+  /**
+ * Attempts delivery to all subscribed consumers.
+ * Optionally excludes one connection (used after NACK/requeue).
+ */
+async deliverAvailable(
+  excludeConnectionId?: string
+): Promise<void> {
+  const deliveries: Promise<boolean>[] = [];
+
+  for (const [connectionId, subscriptions] of this.subscriptions) {
+    if (connectionId === excludeConnectionId) {
+      continue;
+    }
+
+    for (const subscription of subscriptions.values()) {
+      deliveries.push(
+        this.deliverNext(
+          subscription.connection,
+          subscription.queueName
+        )
+      );
+    }
+  }
+
+  await Promise.all(deliveries);
 }
+}
+

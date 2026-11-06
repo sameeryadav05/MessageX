@@ -8,6 +8,8 @@ import type {
 } from "../protocol/protocol.schema.js";
 
 import type { CommandHandlerFunction } from "./command.types.js";
+import { handleAck } from "./handlers/ack.handler.js";
+import { handleNack } from "./handlers/nack.handler.js";
 
 import { handleConnect } from "./handlers/connect.handler.js";
 import { handleQueueDeclare } from "./handlers/queue-declare.handler.js";
@@ -30,6 +32,8 @@ export class CommandHandler {
     this.handlers.set("BIND", handleBind);
     this.handlers.set("PUBLISH", handlePublish);
     this.handlers.set("CONSUME", handleConsume);
+    this.handlers.set("ACK", handleAck);
+this.handlers.set("NACK", handleNack);
   }
 
   async handle(

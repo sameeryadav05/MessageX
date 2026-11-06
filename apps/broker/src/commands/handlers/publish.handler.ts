@@ -5,7 +5,8 @@ import type { CommandHandlerFunction } from "../command.types.js";
 
 export const handlePublish: CommandHandlerFunction = async ({
   connection,
-  command
+  command,
+  consumerManager
 }) => {
   if (!connection.isConnected || connection.clientName === null) {
     return {
@@ -96,6 +97,9 @@ export const handlePublish: CommandHandlerFunction = async ({
       headers: headers as Record<string, unknown> | undefined
     });
 
+    // Notify active consumers after messages are committed to PostgreSQL.
+    await consumerManager.deliverAvailable(); 
+
     return {
       version: PROTOCOL_VERSION,
       type: "RESPONSE",
@@ -110,6 +114,8 @@ export const handlePublish: CommandHandlerFunction = async ({
     const message = error instanceof Error
       ? error.message
       : "Message publishing failed";
+
+
 
     return {
       version: PROTOCOL_VERSION,

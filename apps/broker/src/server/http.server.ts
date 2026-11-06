@@ -6,6 +6,7 @@ import {
   getAllQueues,
   getQueueByName
 } from "../queues/queue.repository.js";
+import { getAllBindings } from "../bindings/binding.repository.js";
 
 const app = express();
 
@@ -115,6 +116,33 @@ app.get("/api/exchanges", async (_req, res) => {
       error: {
         code: "ERR_INTERNAL",
         message: "Failed to retrieve exchanges"
+      }
+    });
+  }
+});
+
+app.get("/api/bindings", async (_req, res) => {
+  try {
+    const bindings = await getAllBindings();
+
+    res.status(200).json({
+      success: true,
+      count: bindings.length,
+      bindings: bindings.map((binding) => ({
+        id: binding.id,
+        exchangeName: binding.exchange_name,
+        queueName: binding.queue_name,
+        routingKey: binding.routing_key
+      }))
+    });
+  } catch (error) {
+    console.error("[HTTP] Failed to fetch bindings:", error);
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "ERR_INTERNAL",
+        message: "Failed to retrieve bindings"
       }
     });
   }

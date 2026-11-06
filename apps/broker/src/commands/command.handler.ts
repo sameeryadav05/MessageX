@@ -1,5 +1,5 @@
 import type { ClientConnection } from "../connection/client-connection.js";
-
+import { handleBind } from "./handlers/bind.handler.js";
 import type {
   ValidatedCommand,
   ValidatedResponse
@@ -20,6 +20,7 @@ export class CommandHandler {
     this.handlers.set("CONNECT", handleConnect);
     this.handlers.set("QUEUE_DECLARE", handleQueueDeclare);
     this.handlers.set("EXCHANGE_DECLARE", handleExchangeDeclare);
+    this.handlers.set("BIND", handleBind);
   }
 
   async handle(

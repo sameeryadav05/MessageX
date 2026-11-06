@@ -98,6 +98,16 @@ socket.on("connect", async () => {
     console.log("QUEUE_DECLARE successful:", queueResponse);
     console.log("Created queue:", queueName);
 
+
+    const bindingResponse = await sendCommand("BIND", {
+      exchangeName,
+      queueName,
+      routingKey: "orders.created"
+    });
+
+    console.log("BIND successful:", bindingResponse);
+
+
     socket.end();
   } catch (error) {
     console.error("Test failed:", error.message);

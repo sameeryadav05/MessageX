@@ -10,6 +10,7 @@ import type { CommandHandlerFunction } from "./command.types.js";
 import { handleConnect } from "./handlers/connect.handler.js";
 import { handleQueueDeclare } from "./handlers/queue-declare.handler.js";
 import { handleExchangeDeclare } from "./handlers/exchange-declare.handler.js";
+import { handlePublish } from "./handlers/publish.handler.js";
 
 export class CommandHandler {
   private readonly handlers: Map<string, CommandHandlerFunction>;
@@ -21,6 +22,7 @@ export class CommandHandler {
     this.handlers.set("QUEUE_DECLARE", handleQueueDeclare);
     this.handlers.set("EXCHANGE_DECLARE", handleExchangeDeclare);
     this.handlers.set("BIND", handleBind);
+    this.handlers.set("PUBLISH", handlePublish);
   }
 
   async handle(

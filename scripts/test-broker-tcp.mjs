@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 
 const socket = net.createConnection({
   host: "127.0.0.1",
-  port: 5678
+  port: 5678,
 });
 
 let buffer = Buffer.alloc(0);
@@ -20,7 +20,7 @@ function sendCommand(command, payload) {
       type: "COMMAND",
       command,
       requestId,
-      payload
+      payload,
     };
 
     const body = Buffer.from(JSON.stringify(message), "utf8");
@@ -69,18 +69,17 @@ socket.on("connect", async () => {
     console.log("TCP connected to MessageX");
 
     const connectResponse = await sendCommand("CONNECT", {
-      clientName: "messagex-test-client"
+      clientName: "messagex-test-client",
     });
 
     console.log("CONNECT successful:", connectResponse);
-
 
     const exchangeName = `test-exchange-${Date.now()}`;
 
     const exchangeResponse = await sendCommand("EXCHANGE_DECLARE", {
       name: exchangeName,
       type: "direct",
-      durable: true
+      durable: true,
     });
 
     console.log("EXCHANGE_DECLARE successful:", exchangeResponse);
@@ -92,21 +91,34 @@ socket.on("connect", async () => {
       name: queueName,
       durable: true,
       exclusive: false,
-      autoDelete: false
+      autoDelete: false,
     });
 
     console.log("QUEUE_DECLARE successful:", queueResponse);
     console.log("Created queue:", queueName);
 
-
     const bindingResponse = await sendCommand("BIND", {
       exchangeName,
       queueName,
-      routingKey: "orders.created"
+      routingKey: "orders.created",
     });
 
     console.log("BIND successful:", bindingResponse);
 
+    const publishResponse = await sendCommand("PUBLISH", {
+      exchangeName,
+      routingKey: "orders.created",
+      message: {
+        orderId: "ORD-1001",
+        amount: 2500,
+        status: "created",
+      },
+      headers: {
+        source: "test-client",
+        environment: "development",
+      },
+    });
+    console.log("PUBLISH successful:", publishResponse);
 
     socket.end();
   } catch (error) {

@@ -1,4 +1,6 @@
+
 import { PROTOCOL_VERSION } from "../../protocol/protocol.constants.js";
+
 import type { CommandHandlerFunction } from "../command.types.js";
 
 export const handleCancel: CommandHandlerFunction = async ({

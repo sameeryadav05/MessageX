@@ -1,3 +1,4 @@
+
 import type { ClientConnection } from "../connection/client-connection.js";
 
 import { ConsumerManager } from "../consumers/consumer.manager.js";
@@ -8,8 +9,6 @@ import type {
 } from "../protocol/protocol.schema.js";
 
 import type { CommandHandlerFunction } from "./command.types.js";
-import { handleAck } from "./handlers/ack.handler.js";
-import { handleNack } from "./handlers/nack.handler.js";
 
 import { handleConnect } from "./handlers/connect.handler.js";
 import { handleQueueDeclare } from "./handlers/queue-declare.handler.js";
@@ -17,6 +16,8 @@ import { handleExchangeDeclare } from "./handlers/exchange-declare.handler.js";
 import { handleBind } from "./handlers/bind.handler.js";
 import { handlePublish } from "./handlers/publish.handler.js";
 import { handleConsume } from "./handlers/consume.handler.js";
+import { handleAck } from "./handlers/ack.handler.js";
+import { handleNack } from "./handlers/nack.handler.js";
 import { handleCancel } from "./handlers/cancel.handler.js";
 
 export class CommandHandler {

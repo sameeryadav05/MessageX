@@ -1,6 +1,8 @@
+
 import { randomUUID } from "node:crypto";
 
 import type { ClientConnection } from "../connection/client-connection.js";
+
 import {
   claimNextMessage,
   requeueMessagesForConnection,
@@ -20,8 +22,12 @@ export class ConsumerManager {
   >();
 
   private readonly claiming = new Set<string>();
+
+  // Tracks the delivery currently occupying each consumer's prefetch slot.
   private readonly inFlight = new Map<string, string>();
 
+  // Tracks deliveryTag -> queueName independently of subscriptions.
+  // This allows ACK/NACK even after CANCEL.
   private readonly deliveryQueues = new Map<string, string>();
 
   private getKey(connectionId: string, queueName: string): string {
@@ -84,6 +90,7 @@ export class ConsumerManager {
         return false;
       }
 
+      // Subscription may have been cancelled while the DB claim was running.
       if (!this.isSubscribed(connection.id, queueName)) {
         await rejectMessage(message.deliveryTag, connection.id, true);
         return false;
@@ -97,14 +104,16 @@ export class ConsumerManager {
       this.inFlight.set(key, message.deliveryTag);
       this.deliveryQueues.set(message.deliveryTag, queueName);
 
+      const subscription = this.subscriptions
+        .get(connection.id)
+        ?.get(queueName);
+
       connection.send({
         version: 1,
         type: "EVENT",
         event: "MESSAGE_DELIVERED",
         payload: {
-          consumerTag: this.subscriptions
-            .get(connection.id)
-            ?.get(queueName)?.consumerTag,
+          consumerTag: subscription?.consumerTag,
           queueName,
           messageId: message.id,
           deliveryTag: message.deliveryTag,
@@ -124,6 +133,13 @@ export class ConsumerManager {
       );
 
       await requeueMessagesForConnection(connection.id);
+
+      const deliveryTag = this.inFlight.get(key);
+
+      if (deliveryTag) {
+        this.deliveryQueues.delete(deliveryTag);
+      }
+
       this.inFlight.delete(key);
 
       return false;
@@ -134,61 +150,68 @@ export class ConsumerManager {
 
   /**
    * Releases the prefetch slot after a valid ACK/NACK.
-   * Returns the queue that can now deliver another message.
+   * Works even if the subscription was already cancelled.
    */
-settleDelivery(
-  connectionId: string,
-  deliveryTag: string
-): string | null {
-  const queueName = this.deliveryQueues.get(deliveryTag);
+  settleDelivery(
+    connectionId: string,
+    deliveryTag: string
+  ): string | null {
+    const queueName = this.deliveryQueues.get(deliveryTag);
 
-  if (!queueName) {
-    return null;
-  }
-
-  const key = this.getKey(connectionId, queueName);
-
-  if (this.inFlight.get(key) !== deliveryTag) {
-    return null;
-  }
-
-  this.inFlight.delete(key);
-  this.deliveryQueues.delete(deliveryTag);
-
-  return queueName;
-}
-
-cancel(
-  connectionId: string,
-  consumerTag: string
-): string | null {
-  const connectionSubscriptions = this.subscriptions.get(connectionId);
-
-  if (!connectionSubscriptions) {
-    return null;
-  }
-
-  for (const [queueName, subscription] of connectionSubscriptions) {
-    if (subscription.consumerTag === consumerTag) {
-      connectionSubscriptions.delete(queueName);
-
-      if (connectionSubscriptions.size === 0) {
-        this.subscriptions.delete(connectionId);
-      }
-
-      return queueName;
+    if (!queueName) {
+      return null;
     }
+
+    const key = this.getKey(connectionId, queueName);
+
+    if (this.inFlight.get(key) !== deliveryTag) {
+      return null;
+    }
+
+    this.inFlight.delete(key);
+    this.deliveryQueues.delete(deliveryTag);
+
+    return queueName;
   }
 
-  return null;
-}
+  /**
+   * Cancels a subscription without discarding its in-flight message.
+   */
+  cancel(
+    connectionId: string,
+    consumerTag: string
+  ): string | null {
+    const connectionSubscriptions = this.subscriptions.get(connectionId);
 
+    if (!connectionSubscriptions) {
+      return null;
+    }
+
+    for (const [queueName, subscription] of connectionSubscriptions) {
+      if (subscription.consumerTag === consumerTag) {
+        connectionSubscriptions.delete(queueName);
+
+        if (connectionSubscriptions.size === 0) {
+          this.subscriptions.delete(connectionId);
+        }
+
+        return queueName;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Removes all subscriptions and requeues messages when a client disconnects.
+   */
   async removeConnection(connectionId: string): Promise<void> {
     this.subscriptions.delete(connectionId);
 
-    for (const key of this.inFlight.keys()) {
+    for (const [key, deliveryTag] of this.inFlight) {
       if (key.startsWith(`${connectionId}:`)) {
         this.inFlight.delete(key);
+        this.deliveryQueues.delete(deliveryTag);
       }
     }
 
@@ -202,30 +225,29 @@ cancel(
   }
 
   /**
- * Attempts delivery to all subscribed consumers.
- * Optionally excludes one connection (used after NACK/requeue).
- */
-async deliverAvailable(
-  excludeConnectionId?: string
-): Promise<void> {
-  const deliveries: Promise<boolean>[] = [];
+   * Attempts delivery to all subscribed consumers.
+   * Optionally excludes one connection (used after NACK/requeue).
+   */
+  async deliverAvailable(
+    excludeConnectionId?: string
+  ): Promise<void> {
+    const deliveries: Promise<boolean>[] = [];
 
-  for (const [connectionId, subscriptions] of this.subscriptions) {
-    if (connectionId === excludeConnectionId) {
-      continue;
+    for (const [connectionId, subscriptions] of this.subscriptions) {
+      if (connectionId === excludeConnectionId) {
+        continue;
+      }
+
+      for (const subscription of subscriptions.values()) {
+        deliveries.push(
+          this.deliverNext(
+            subscription.connection,
+            subscription.queueName
+          )
+        );
+      }
     }
 
-    for (const subscription of subscriptions.values()) {
-      deliveries.push(
-        this.deliverNext(
-          subscription.connection,
-          subscription.queueName
-        )
-      );
-    }
+    await Promise.all(deliveries);
   }
-
-  await Promise.all(deliveries);
 }
-}
-

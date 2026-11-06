@@ -17,6 +17,7 @@ import { handleExchangeDeclare } from "./handlers/exchange-declare.handler.js";
 import { handleBind } from "./handlers/bind.handler.js";
 import { handlePublish } from "./handlers/publish.handler.js";
 import { handleConsume } from "./handlers/consume.handler.js";
+import { handleCancel } from "./handlers/cancel.handler.js";
 
 export class CommandHandler {
   private readonly handlers: Map<string, CommandHandlerFunction>;
@@ -33,7 +34,8 @@ export class CommandHandler {
     this.handlers.set("PUBLISH", handlePublish);
     this.handlers.set("CONSUME", handleConsume);
     this.handlers.set("ACK", handleAck);
-this.handlers.set("NACK", handleNack);
+    this.handlers.set("NACK", handleNack);
+    this.handlers.set("CANCEL", handleCancel);
   }
 
   async handle(

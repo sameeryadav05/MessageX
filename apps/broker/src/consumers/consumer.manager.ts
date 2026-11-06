@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import type { ClientConnection } from "../connection/client-connection.js";
-import { claimNextMessage, requeueMessagesForConnection } from "../messages/message.repository.js";
+import {
+  claimNextMessage,
+  requeueMessagesForConnection,
+  rejectMessage
+} from "../messages/message.repository.js";
 
 interface ConsumerSubscription {
   consumerTag: string;
@@ -17,6 +21,8 @@ export class ConsumerManager {
 
   private readonly claiming = new Set<string>();
   private readonly inFlight = new Map<string, string>();
+
+  private readonly deliveryQueues = new Map<string, string>();
 
   private getKey(connectionId: string, queueName: string): string {
     return `${connectionId}:${queueName}`;
@@ -78,12 +84,18 @@ export class ConsumerManager {
         return false;
       }
 
+      if (!this.isSubscribed(connection.id, queueName)) {
+        await rejectMessage(message.deliveryTag, connection.id, true);
+        return false;
+      }
+
       if (!connection.isConnected) {
         await requeueMessagesForConnection(connection.id);
         return false;
       }
 
       this.inFlight.set(key, message.deliveryTag);
+      this.deliveryQueues.set(message.deliveryTag, queueName);
 
       connection.send({
         version: 1,
@@ -124,27 +136,52 @@ export class ConsumerManager {
    * Releases the prefetch slot after a valid ACK/NACK.
    * Returns the queue that can now deliver another message.
    */
-  settleDelivery(
-    connectionId: string,
-    deliveryTag: string
-  ): string | null {
-    const connectionSubscriptions = this.subscriptions.get(connectionId);
+settleDelivery(
+  connectionId: string,
+  deliveryTag: string
+): string | null {
+  const queueName = this.deliveryQueues.get(deliveryTag);
 
-    if (!connectionSubscriptions) {
-      return null;
-    }
-
-    for (const [queueName] of connectionSubscriptions) {
-      const key = this.getKey(connectionId, queueName);
-
-      if (this.inFlight.get(key) === deliveryTag) {
-        this.inFlight.delete(key);
-        return queueName;
-      }
-    }
-
+  if (!queueName) {
     return null;
   }
+
+  const key = this.getKey(connectionId, queueName);
+
+  if (this.inFlight.get(key) !== deliveryTag) {
+    return null;
+  }
+
+  this.inFlight.delete(key);
+  this.deliveryQueues.delete(deliveryTag);
+
+  return queueName;
+}
+
+cancel(
+  connectionId: string,
+  consumerTag: string
+): string | null {
+  const connectionSubscriptions = this.subscriptions.get(connectionId);
+
+  if (!connectionSubscriptions) {
+    return null;
+  }
+
+  for (const [queueName, subscription] of connectionSubscriptions) {
+    if (subscription.consumerTag === consumerTag) {
+      connectionSubscriptions.delete(queueName);
+
+      if (connectionSubscriptions.size === 0) {
+        this.subscriptions.delete(connectionId);
+      }
+
+      return queueName;
+    }
+  }
+
+  return null;
+}
 
   async removeConnection(connectionId: string): Promise<void> {
     this.subscriptions.delete(connectionId);

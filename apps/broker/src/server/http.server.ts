@@ -1,7 +1,7 @@
 
 import express from "express";
 import type { Server } from "node:http";
-
+import { getAllExchanges } from "../exchanges/exchange.repository.js";
 import {
   getAllQueues,
   getQueueByName
@@ -87,6 +87,34 @@ app.get("/api/queues/:name", async (req, res) => {
       error: {
         code: "ERR_INTERNAL",
         message: "Failed to retrieve queue"
+      }
+    });
+  }
+});
+
+app.get("/api/exchanges", async (_req, res) => {
+  try {
+    const exchanges = await getAllExchanges();
+
+    res.status(200).json({
+      success: true,
+      count: exchanges.length,
+      exchanges: exchanges.map((exchange) => ({
+        id: exchange.id,
+        name: exchange.name,
+        type: exchange.type,
+        durable: exchange.durable,
+        createdAt: exchange.created_at
+      }))
+    });
+  } catch (error) {
+    console.error("[HTTP] Failed to fetch exchanges:", error);
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "ERR_INTERNAL",
+        message: "Failed to retrieve exchanges"
       }
     });
   }

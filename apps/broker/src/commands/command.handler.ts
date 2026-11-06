@@ -1,38 +1,31 @@
-
 import type { ClientConnection } from "../connection/client-connection.js";
-import { handleQueueDeclare } from "./handlers/queue-declare.handler.js";
 
 import type {
   ValidatedCommand,
   ValidatedResponse
 } from "../protocol/protocol.schema.js";
 
-import type {
-  CommandHandlerFunction
-} from "./command.types.js";
+import type { CommandHandlerFunction } from "./command.types.js";
 
 import { handleConnect } from "./handlers/connect.handler.js";
+import { handleQueueDeclare } from "./handlers/queue-declare.handler.js";
+import { handleExchangeDeclare } from "./handlers/exchange-declare.handler.js";
 
 export class CommandHandler {
-  private readonly handlers: Map<
-    string,
-    CommandHandlerFunction
-  >;
+  private readonly handlers: Map<string, CommandHandlerFunction>;
 
   constructor() {
     this.handlers = new Map();
-    // Register supported command handlers.
-    this.handlers.set("CONNECT", handleConnect);
 
     this.handlers.set("CONNECT", handleConnect);
     this.handlers.set("QUEUE_DECLARE", handleQueueDeclare);
+    this.handlers.set("EXCHANGE_DECLARE", handleExchangeDeclare);
   }
 
   async handle(
     connection: ClientConnection,
     command: ValidatedCommand
   ): Promise<ValidatedResponse> {
-
     const handler = this.handlers.get(command.command);
 
     if (!handler) {
@@ -48,9 +41,6 @@ export class CommandHandler {
       };
     }
 
-    return await handler({
-      connection,
-      command
-    });
+    return handler({ connection, command });
   }
 }

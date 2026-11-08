@@ -6,8 +6,11 @@ import type { ClientConnection } from "../connection/client-connection.js";
 import {
   claimNextMessage,
   requeueMessagesForConnection,
-  rejectMessage
+  rejectMessage,
+  requeueExpiredMessages
 } from "../messages/message.repository.js";
+
+
 
 interface ConsumerSubscription {
   consumerTag: string;
@@ -70,6 +73,48 @@ export class ConsumerManager {
 
     return consumerTag;
   }
+
+  /**
+ * Recovers messages that were not acknowledged before the timeout.
+ */
+async recoverExpiredDeliveries(
+  timeoutSeconds: number
+): Promise<number> {
+  const expiredDeliveries = await requeueExpiredMessages(timeoutSeconds);
+
+  const affectedQueues = new Set<string>();
+
+  for (const delivery of expiredDeliveries) {
+    const key = this.getKey(
+      delivery.connectionId,
+      delivery.queueName
+    );
+
+    // Release the slot only if it still belongs to this delivery.
+    if (this.inFlight.get(key) === delivery.deliveryTag) {
+      this.inFlight.delete(key);
+    }
+
+    this.deliveryQueues.delete(delivery.deliveryTag);
+    affectedQueues.add(delivery.queueName);
+  }
+
+  // Make recovered messages available to active consumers.
+  await Promise.all(
+    [...affectedQueues].map((queueName) =>
+      this.dispatchQueue(queueName)
+    )
+  );
+
+  if (expiredDeliveries.length > 0) {
+    console.log(
+      `[Consumer] Recovered ${expiredDeliveries.length} expired deliveries`
+    );
+  }
+
+  return expiredDeliveries.length;
+}
+  
 
   isSubscribed(connectionId: string, queueName: string): boolean {
     return this.subscriptions.get(connectionId)?.has(queueName) ?? false;

@@ -110,4 +110,11 @@ export class TcpServer {
       console.log("[TCP] Server stopped");
     });
   }
+
+
+    async recoverExpiredDeliveries(
+    timeoutSeconds: number
+  ): Promise<number> {
+    return this.consumerManager.recoverExpiredDeliveries(timeoutSeconds);
+  }
 }

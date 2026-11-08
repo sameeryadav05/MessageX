@@ -253,27 +253,67 @@ export async function rejectMessage(
 /**
  * Makes timed-out deliveries available for another consumer.
  */
+export interface ExpiredDelivery {
+  queueName: string;
+  connectionId: string;
+  deliveryTag: string;
+}
+
+/**
+ * Requeues messages whose ACK timeout has expired.
+ * Returns delivery details so ConsumerManager can release stale slots.
+ */
 export async function requeueExpiredMessages(
   timeoutSeconds: number
-): Promise<number> {
+): Promise<ExpiredDelivery[]> {
   if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1) {
     throw new Error("timeoutSeconds must be a positive integer");
   }
 
-  const result = await pool.query(
-    `UPDATE messages
-     SET
-       status = 'ready',
-       delivery_tag = NULL,
-       consumer_connection_id = NULL,
-       delivered_at = NULL
-     WHERE status = 'in_flight'
-       AND delivered_at < NOW() - ($1 * INTERVAL '1 second')
-     RETURNING id`,
+  const result = await pool.query<{
+    queue_name: string;
+    connection_id: string;
+    delivery_tag: string;
+  }>(
+    `WITH expired AS (
+       SELECT
+         m.id,
+         m.queue_id,
+         m.consumer_connection_id,
+         m.delivery_tag
+       FROM messages m
+       WHERE m.status = 'in_flight'
+         AND m.delivered_at < NOW() - ($1 * INTERVAL '1 second')
+       FOR UPDATE SKIP LOCKED
+     ),
+     requeued AS (
+       UPDATE messages m
+       SET
+         status = 'ready',
+         delivery_tag = NULL,
+         consumer_connection_id = NULL,
+         delivered_at = NULL
+       FROM expired e
+       WHERE m.id = e.id
+       RETURNING
+         e.queue_id,
+         e.consumer_connection_id,
+         e.delivery_tag
+     )
+     SELECT
+       q.name AS queue_name,
+       r.consumer_connection_id AS connection_id,
+       r.delivery_tag
+     FROM requeued r
+     JOIN queues q ON q.id = r.queue_id`,
     [timeoutSeconds]
   );
 
-  return result.rowCount ?? 0;
+  return result.rows.map((row) => ({
+    queueName: row.queue_name,
+    connectionId: row.connection_id,
+    deliveryTag: row.delivery_tag
+  }));
 }
 
 /**

@@ -26,6 +26,33 @@ async function startMessageX(): Promise<void> {
 
   tcpServer.start(TCP_PORT);
 
+  const ACK_TIMEOUT_SECONDS = Number(
+  process.env.ACK_TIMEOUT_SECONDS ?? 30
+);
+
+const ACK_TIMEOUT_CHECK_INTERVAL_MS = Number(
+  process.env.ACK_TIMEOUT_CHECK_INTERVAL_MS ?? 5000
+);
+
+if (
+  !Number.isInteger(ACK_TIMEOUT_SECONDS) ||
+  ACK_TIMEOUT_SECONDS < 1 ||
+  !Number.isInteger(ACK_TIMEOUT_CHECK_INTERVAL_MS) ||
+  ACK_TIMEOUT_CHECK_INTERVAL_MS < 1
+) {
+  throw new Error("Invalid ACK timeout configuration");
+}
+
+const recoveryTimer = setInterval(() => {
+  void tcpServer
+    .recoverExpiredDeliveries(ACK_TIMEOUT_SECONDS)
+    .catch((error) => {
+      console.error("[Consumer] Delivery recovery failed:", error);
+    });
+}, ACK_TIMEOUT_CHECK_INTERVAL_MS);
+
+recoveryTimer.unref();
+
   let shuttingDown = false;
 
   async function shutdown(): Promise<void> {
@@ -33,8 +60,8 @@ async function startMessageX(): Promise<void> {
       return;
     }
 
+    clearInterval(recoveryTimer);
     shuttingDown = true;
-
     console.log("\n[MessageX] Shutting down...");
 
     httpServer.close();

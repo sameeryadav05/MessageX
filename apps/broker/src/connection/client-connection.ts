@@ -15,8 +15,9 @@ export class ClientConnection {
 
   private connected = true;
 
-  // Client identity. Null until CONNECT succeeds.
   private registeredClientName: string | null = null;
+
+  private authenticatedUsername: string | null = null;
 
   constructor(
     private readonly socket: net.Socket,
@@ -70,7 +71,7 @@ export class ClientConnection {
   }
 
   send(message: ValidatedProtocolMessage): void {
-    if (!this.connected || this.socket.destroyed) {
+    if (!this.isConnected || this.socket.destroyed) {
       throw new Error("Connection is not available");
     }
 
@@ -79,7 +80,6 @@ export class ClientConnection {
     this.socket.write(frame);
   }
 
-  // Register the client identity after a successful CONNECT.
   registerClient(clientName: string): void {
     if (!this.isConnected) {
       throw new Error("Cannot register a closed connection");
@@ -88,9 +88,24 @@ export class ClientConnection {
     this.registeredClientName = clientName;
   }
 
-  // Read-only access to the registered client name.
   get clientName(): string | null {
     return this.registeredClientName;
+  }
+
+  authenticate(username: string): void {
+    if (!this.isConnected) {
+      throw new Error("Cannot authenticate a closed connection");
+    }
+
+    this.authenticatedUsername = username;
+  }
+
+  get username(): string | null {
+    return this.authenticatedUsername;
+  }
+
+  get isAuthenticated(): boolean {
+    return this.authenticatedUsername !== null;
   }
 
   close(): void {
@@ -107,6 +122,7 @@ export class ClientConnection {
     }
 
     this.connected = false;
+    this.authenticatedUsername = null;
 
     this.decoder.reset();
 

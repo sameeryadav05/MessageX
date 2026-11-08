@@ -19,6 +19,7 @@ import { handleConsume } from "./handlers/consume.handler.js";
 import { handleAck } from "./handlers/ack.handler.js";
 import { handleNack } from "./handlers/nack.handler.js";
 import { handleCancel } from "./handlers/cancel.handler.js";
+import { handleAuth } from "./handlers/auth.handler.js";
 
 export class CommandHandler {
   private readonly handlers: Map<string, CommandHandlerFunction>;
@@ -37,6 +38,7 @@ export class CommandHandler {
     this.handlers.set("ACK", handleAck);
     this.handlers.set("NACK", handleNack);
     this.handlers.set("CANCEL", handleCancel);
+    this.handlers.set("AUTH", handleAuth);
   }
 
   async handle(
@@ -57,6 +59,24 @@ export class CommandHandler {
         }
       };
     }
+
+    // CONNECT and AUTH are the only commands allowed before authentication.
+  if (
+    command.command !== "CONNECT" &&
+    command.command !== "AUTH" &&
+    !connection.isAuthenticated
+  ) {
+    return {
+      version: 1,
+      type: "RESPONSE",
+      requestId: command.requestId,
+      success: false,
+      error: {
+        code: "ERR_AUTH_REQUIRED",
+        message: "Authenticate with username and password before using the broker"
+      }
+    };
+  }
 
     return handler({
       connection,

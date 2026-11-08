@@ -1,5 +1,10 @@
+
 import { randomUUID } from "node:crypto";
 import { pool } from "../database/database.js";
+
+// -----------------------------------------------------------------------------
+// Types
+// -----------------------------------------------------------------------------
 
 export interface PublishMessageOptions {
   exchangeName: string;
@@ -34,6 +39,25 @@ interface MessageRow {
   delivery_count: number;
   created_at: Date;
 }
+
+export interface MessageReleaseResult {
+  released: boolean;
+  sourceQueueName: string | null;
+  destinationQueueName: string | null;
+  deadLettered: boolean;
+}
+
+export interface ExpiredDelivery {
+  queueName: string;
+  connectionId: string;
+  deliveryTag: string;
+  destinationQueueName: string | null;
+  deadLettered: boolean;
+}
+
+// -----------------------------------------------------------------------------
+// Publish message
+// -----------------------------------------------------------------------------
 
 export async function publishMessage(
   options: PublishMessageOptions
@@ -80,19 +104,20 @@ export async function publishMessage(
       );
     }
 
-    const bindingsResult = exchange.type === "direct"
-      ? await client.query<{ queue_id: string }>(
-          `SELECT DISTINCT queue_id
-           FROM bindings
-           WHERE exchange_id = $1 AND routing_key = $2`,
-          [exchange.id, routingKey]
-        )
-      : await client.query<{ queue_id: string }>(
-          `SELECT DISTINCT queue_id
-           FROM bindings
-           WHERE exchange_id = $1`,
-          [exchange.id]
-        );
+    const bindingsResult =
+      exchange.type === "direct"
+        ? await client.query<{ queue_id: string }>(
+            `SELECT DISTINCT queue_id
+             FROM bindings
+             WHERE exchange_id = $1 AND routing_key = $2`,
+            [exchange.id, routingKey]
+          )
+        : await client.query<{ queue_id: string }>(
+            `SELECT DISTINCT queue_id
+             FROM bindings
+             WHERE exchange_id = $1`,
+            [exchange.id]
+          );
 
     const queueIds = bindingsResult.rows.map((row) => row.queue_id);
 
@@ -119,10 +144,10 @@ export async function publishMessage(
   }
 }
 
-/**
- * Claims the oldest ready message from a queue.
- * The delivery is associated with the consuming TCP connection.
- */
+// -----------------------------------------------------------------------------
+// Claim next message
+// -----------------------------------------------------------------------------
+
 export async function claimNextMessage(
   queueName: string,
   connectionId: string
@@ -131,7 +156,9 @@ export async function claimNextMessage(
 
   try {
     const queueResult = await client.query<{ id: string }>(
-      `SELECT id FROM queues WHERE name = $1`,
+      `SELECT id
+       FROM queues
+       WHERE name = $1`,
       [queueName]
     );
 
@@ -193,9 +220,10 @@ export async function claimNextMessage(
   }
 }
 
-/**
- * Permanently removes a message after a valid ACK.
- */
+// -----------------------------------------------------------------------------
+// Acknowledge message
+// -----------------------------------------------------------------------------
+
 export async function acknowledgeMessage(
   deliveryTag: string,
   connectionId: string
@@ -212,57 +240,213 @@ export async function acknowledgeMessage(
   return (result.rowCount ?? 0) > 0;
 }
 
-/**
- * Requeues a message after NACK, or deletes it when requeue is false.
- */
+// -----------------------------------------------------------------------------
+// Release message: NACK, timeout and disconnect recovery
+// -----------------------------------------------------------------------------
+
+export async function releaseMessage(
+  deliveryTag: string,
+  connectionId: string,
+  requeue: boolean
+): Promise<MessageReleaseResult> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const result = await client.query<{
+      id: string;
+      queue_id: string;
+      queue_name: string;
+      max_delivery_count: number;
+      dead_letter_queue_id: string | null;
+      dead_letter_queue_name: string | null;
+      delivery_count: number;
+      headers: Record<string, unknown>;
+    }>(
+      `SELECT
+         m.id,
+         m.queue_id,
+         q.name AS queue_name,
+         q.max_delivery_count,
+         q.dead_letter_queue_id,
+         dlq.name AS dead_letter_queue_name,
+         m.delivery_count,
+         m.headers
+       FROM messages m
+       JOIN queues q ON q.id = m.queue_id
+       LEFT JOIN queues dlq ON dlq.id = q.dead_letter_queue_id
+       WHERE m.delivery_tag = $1
+         AND m.consumer_connection_id = $2
+         AND m.status = 'in_flight'
+       FOR UPDATE OF m`,
+      [deliveryTag, connectionId]
+    );
+
+    const message = result.rows[0];
+
+    if (!message) {
+      await client.query("ROLLBACK");
+
+      return {
+        released: false,
+        sourceQueueName: null,
+        destinationQueueName: null,
+        deadLettered: false
+      };
+    }
+
+    // Explicit NACK with requeue=false discards the message.
+    if (!requeue) {
+      await client.query(
+        `DELETE FROM messages
+         WHERE id = $1`,
+        [message.id]
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        released: true,
+        sourceQueueName: message.queue_name,
+        destinationQueueName: null,
+        deadLettered: false
+      };
+    }
+
+    // delivery_count was incremented when this message was claimed.
+    const exhausted =
+      message.delivery_count >= message.max_delivery_count;
+
+    // Retry limit has not been reached.
+    if (!exhausted) {
+      await client.query(
+        `UPDATE messages
+         SET
+           status = 'ready',
+           delivery_tag = NULL,
+           consumer_connection_id = NULL,
+           delivered_at = NULL
+         WHERE id = $1`,
+        [message.id]
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        released: true,
+        sourceQueueName: message.queue_name,
+        destinationQueueName: message.queue_name,
+        deadLettered: false
+      };
+    }
+
+    // Retry limit reached and a DLQ is configured.
+    if (message.dead_letter_queue_id) {
+      if (message.dead_letter_queue_id === message.queue_id) {
+        throw new Error(
+          "A queue cannot dead-letter a message to itself"
+        );
+      }
+
+      const previousDeaths = Array.isArray(message.headers["x-death"])
+        ? (message.headers["x-death"] as unknown[])
+        : [];
+
+      const deathMetadata = {
+        queue: message.queue_name,
+        reason: "max-delivery-count",
+        count: message.delivery_count,
+        time: new Date().toISOString()
+      };
+
+      const updatedHeaders = {
+        ...message.headers,
+        "x-death": [...previousDeaths, deathMetadata],
+        "x-first-death-queue":
+          message.headers["x-first-death-queue"] ?? message.queue_name,
+        "x-last-death-queue": message.queue_name,
+        "x-last-death-reason": "max-delivery-count"
+      };
+
+      await client.query(
+        `UPDATE messages
+         SET
+           queue_id = $2,
+           headers = $3,
+           status = 'ready',
+           delivery_count = 0,
+           delivery_tag = NULL,
+           consumer_connection_id = NULL,
+           delivered_at = NULL
+         WHERE id = $1`,
+        [
+          message.id,
+          message.dead_letter_queue_id,
+          JSON.stringify(updatedHeaders)
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        released: true,
+        sourceQueueName: message.queue_name,
+        destinationQueueName: message.dead_letter_queue_name,
+        deadLettered: true
+      };
+    }
+
+    // No DLQ configured: retain the message with status = dead.
+    await client.query(
+      `UPDATE messages
+       SET
+         status = 'dead',
+         delivery_tag = NULL,
+         consumer_connection_id = NULL,
+         delivered_at = NULL
+       WHERE id = $1`,
+      [message.id]
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      released: true,
+      sourceQueueName: message.queue_name,
+      destinationQueueName: null,
+      deadLettered: true
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Compatibility wrapper
+// -----------------------------------------------------------------------------
+
 export async function rejectMessage(
   deliveryTag: string,
   connectionId: string,
   requeue = true
 ): Promise<boolean> {
-  if (!requeue) {
-    const result = await pool.query(
-      `DELETE FROM messages
-       WHERE delivery_tag = $1
-         AND consumer_connection_id = $2
-         AND status = 'in_flight'
-       RETURNING id`,
-      [deliveryTag, connectionId]
-    );
-
-    return (result.rowCount ?? 0) > 0;
-  }
-
-  const result = await pool.query(
-    `UPDATE messages
-     SET
-       status = 'ready',
-       delivery_tag = NULL,
-       consumer_connection_id = NULL,
-       delivered_at = NULL
-     WHERE delivery_tag = $1
-       AND consumer_connection_id = $2
-       AND status = 'in_flight'
-     RETURNING id`,
-    [deliveryTag, connectionId]
+  const result = await releaseMessage(
+    deliveryTag,
+    connectionId,
+    requeue
   );
 
-  return (result.rowCount ?? 0) > 0;
+  return result.released;
 }
 
-/**
- * Makes timed-out deliveries available for another consumer.
- */
-export interface ExpiredDelivery {
-  queueName: string;
-  connectionId: string;
-  deliveryTag: string;
-}
+// -----------------------------------------------------------------------------
+// ACK timeout recovery
+// -----------------------------------------------------------------------------
 
-/**
- * Requeues messages whose ACK timeout has expired.
- * Returns delivery details so ConsumerManager can release stale slots.
- */
 export async function requeueExpiredMessages(
   timeoutSeconds: number
 ): Promise<ExpiredDelivery[]> {
@@ -270,70 +454,83 @@ export async function requeueExpiredMessages(
     throw new Error("timeoutSeconds must be a positive integer");
   }
 
-  const result = await pool.query<{
-    queue_name: string;
-    connection_id: string;
+  const expired = await pool.query<{
     delivery_tag: string;
+    connection_id: string;
+    queue_name: string;
   }>(
-    `WITH expired AS (
-       SELECT
-         m.id,
-         m.queue_id,
-         m.consumer_connection_id,
-         m.delivery_tag
-       FROM messages m
-       WHERE m.status = 'in_flight'
-         AND m.delivered_at < NOW() - ($1 * INTERVAL '1 second')
-       FOR UPDATE SKIP LOCKED
-     ),
-     requeued AS (
-       UPDATE messages m
-       SET
-         status = 'ready',
-         delivery_tag = NULL,
-         consumer_connection_id = NULL,
-         delivered_at = NULL
-       FROM expired e
-       WHERE m.id = e.id
-       RETURNING
-         e.queue_id,
-         e.consumer_connection_id,
-         e.delivery_tag
-     )
-     SELECT
-       q.name AS queue_name,
-       r.consumer_connection_id AS connection_id,
-       r.delivery_tag
-     FROM requeued r
-     JOIN queues q ON q.id = r.queue_id`,
+    `SELECT
+       m.delivery_tag,
+       m.consumer_connection_id AS connection_id,
+       q.name AS queue_name
+     FROM messages m
+     JOIN queues q ON q.id = m.queue_id
+     WHERE m.status = 'in_flight'
+       AND m.delivered_at < NOW() - ($1 * INTERVAL '1 second')
+     ORDER BY m.delivered_at ASC`,
     [timeoutSeconds]
   );
 
-  return result.rows.map((row) => ({
-    queueName: row.queue_name,
-    connectionId: row.connection_id,
-    deliveryTag: row.delivery_tag
-  }));
+  const recovered: ExpiredDelivery[] = [];
+
+  for (const row of expired.rows) {
+    const result = await releaseMessage(
+      row.delivery_tag,
+      row.connection_id,
+      true
+    );
+
+    if (result.released) {
+      recovered.push({
+        queueName: row.queue_name,
+        connectionId: row.connection_id,
+        deliveryTag: row.delivery_tag,
+        destinationQueueName: result.destinationQueueName,
+        deadLettered: result.deadLettered
+      });
+    }
+  }
+
+  return recovered;
 }
 
+// -----------------------------------------------------------------------------
+// Disconnect recovery
+// -----------------------------------------------------------------------------
+
 /**
- * Releases all messages owned by a disconnected consumer.
+ * Releases every in-flight message owned by a disconnected connection.
+ *
+ * Important:
+ * Each message passes through releaseMessage(), so retry limits,
+ * dead-letter routing and dead status are applied consistently.
  */
 export async function requeueMessagesForConnection(
   connectionId: string
 ): Promise<number> {
-  const result = await pool.query(
-    `UPDATE messages
-     SET
-       status = 'ready',
-       delivery_tag = NULL,
-       consumer_connection_id = NULL,
-       delivered_at = NULL
+  const result = await pool.query<{
+    delivery_tag: string;
+  }>(
+    `SELECT delivery_tag
+     FROM messages
      WHERE status = 'in_flight'
-       AND consumer_connection_id = $1
-     RETURNING id`,
+       AND consumer_connection_id = $1`,
     [connectionId]
   );
 
-  return result.rowCount ?? 0;
+  let releasedCount = 0;
+
+  for (const row of result.rows) {
+    const releaseResult = await releaseMessage(
+      row.delivery_tag,
+      connectionId,
+      true
+    );
+
+    if (releaseResult.released) {
+      releasedCount++;
+    }
+  }
+
+  return releasedCount;
 }

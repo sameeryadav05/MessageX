@@ -57,6 +57,8 @@ export const handleCancel: CommandHandlerFunction = async ({
     };
   }
 
+  await consumerManager.dispatchQueue(queueName);
+
   return {
     version: PROTOCOL_VERSION,
     type: "RESPONSE",

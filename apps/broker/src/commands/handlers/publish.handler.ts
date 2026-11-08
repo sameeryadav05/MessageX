@@ -115,8 +115,6 @@ export const handlePublish: CommandHandlerFunction = async ({
       ? error.message
       : "Message publishing failed";
 
-
-
     return {
       version: PROTOCOL_VERSION,
       type: "RESPONSE",
@@ -127,5 +125,7 @@ export const handlePublish: CommandHandlerFunction = async ({
         message
       }
     };
+
+    
   }
 };

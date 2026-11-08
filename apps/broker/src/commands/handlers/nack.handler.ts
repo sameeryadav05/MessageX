@@ -76,17 +76,14 @@ export const handleNack: CommandHandlerFunction = async ({
       deliveryTag
     );
 
-    if (queueName) {
-      if (requeue) {
-        // Do not immediately redeliver to the same consumer.
-        // Give other active consumers an opportunity to claim it.
-        await consumerManager.deliverAvailable(connection.id);
-      } else {
-        // The rejected message was deleted, so this consumer
-        // can receive the next available message.
-        await consumerManager.deliverNext(connection, queueName);
-      }
-    }
+if (queueName) {
+  if (requeue) {
+    // Give other active consumers an opportunity first.
+    await consumerManager.deliverAvailable(connection.id);
+  } else {
+    await consumerManager.dispatchQueue(queueName);
+  }
+}
 
     return {
       version: PROTOCOL_VERSION,

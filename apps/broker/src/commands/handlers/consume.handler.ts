@@ -63,7 +63,7 @@ export const handleConsume: CommandHandlerFunction = async ({
     );
 
     // Deliver the first available message, if one exists.
-    await consumerManager.deliverNext(connection, normalizedQueueName);
+    await consumerManager.dispatchQueue(normalizedQueueName);
 
     return {
       version: PROTOCOL_VERSION,

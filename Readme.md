@@ -96,3 +96,8 @@ It allows the SDK to match responses with their original requests, even when mul
 
 
 ![alt text](image-4.png)
+
+
+# multiple consumer using consuming messages from same queue
+
+![alt text](image-5.png)

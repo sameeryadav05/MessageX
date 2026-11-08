@@ -21,14 +21,23 @@ export class ConsumerManager {
     Map<string, ConsumerSubscription>
   >();
 
+  // One active claim per connection + queue.
   private readonly claiming = new Set<string>();
 
-  // Tracks the delivery currently occupying each consumer's prefetch slot.
+  // One unacknowledged message per consumer (prefetch = 1).
   private readonly inFlight = new Map<string, string>();
 
-  // Tracks deliveryTag -> queueName independently of subscriptions.
-  // This allows ACK/NACK even after CANCEL.
+  // Tracks deliveryTag -> queueName, even after CANCEL.
   private readonly deliveryQueues = new Map<string, string>();
+
+  // Last consumer that received a message from each queue.
+  private readonly lastDispatched = new Map<string, string>();
+
+  // Prevents concurrent dispatch loops for the same queue.
+  private readonly dispatching = new Set<string>();
+
+  // Requests another dispatch pass if a notification arrives mid-loop.
+  private readonly dispatchRequested = new Set<string>();
 
   private getKey(connectionId: string, queueName: string): string {
     return `${connectionId}:${queueName}`;
@@ -66,54 +75,126 @@ export class ConsumerManager {
     return this.subscriptions.get(connectionId)?.has(queueName) ?? false;
   }
 
-  async deliverNext(
-    connection: ClientConnection,
+  /**
+   * Returns all currently registered subscriptions for a queue.
+   * Map insertion order provides a stable base ordering.
+   */
+  private getQueueSubscriptions(
     queueName: string
-  ): Promise<boolean> {
-    const key = this.getKey(connection.id, queueName);
+  ): ConsumerSubscription[] {
+    const result: ConsumerSubscription[] = [];
+
+    for (const subscriptions of this.subscriptions.values()) {
+      const subscription = subscriptions.get(queueName);
+
+      if (subscription) {
+        result.push(subscription);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Finds the next eligible consumer after the last consumer
+   * that received a message from this queue.
+   */
+  private getNextEligibleConsumer(
+    queueName: string
+  ): ConsumerSubscription | null {
+    const subscriptions = this.getQueueSubscriptions(queueName);
+
+    if (subscriptions.length === 0) {
+      return null;
+    }
+
+    const lastConnectionId = this.lastDispatched.get(queueName);
+
+    const lastIndex = subscriptions.findIndex(
+      (subscription) => subscription.connection.id === lastConnectionId
+    );
+
+    const startIndex = lastIndex === -1
+      ? 0
+      : (lastIndex + 1) % subscriptions.length;
+
+    for (let offset = 0; offset < subscriptions.length; offset++) {
+      const index = (startIndex + offset) % subscriptions.length;
+      const subscription = subscriptions[index];
+
+      const connectionId = subscription.connection.id;
+      const key = this.getKey(connectionId, queueName);
+
+      if (
+        subscription.connection.isConnected &&
+        this.isSubscribed(connectionId, queueName) &&
+        !this.claiming.has(key) &&
+        !this.inFlight.has(key)
+      ) {
+        return subscription;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Claims and sends one message to the selected consumer.
+   *
+   * Returns:
+   * - "delivered": a message was delivered
+   * - "empty": no ready message exists
+   * - "skipped": the selected consumer became unavailable
+   */
+  private async deliverToConsumer(
+    subscription: ConsumerSubscription
+  ): Promise<"delivered" | "empty" | "skipped"> {
+    const { connection, queueName } = subscription;
+    const connectionId = connection.id;
+    const key = this.getKey(connectionId, queueName);
 
     if (
       !connection.isConnected ||
-      !this.isSubscribed(connection.id, queueName) ||
+      !this.isSubscribed(connectionId, queueName) ||
       this.claiming.has(key) ||
       this.inFlight.has(key)
     ) {
-      return false;
+      return "skipped";
     }
 
     this.claiming.add(key);
 
+    let claimedDeliveryTag: string | null = null;
+
     try {
-      const message = await claimNextMessage(queueName, connection.id);
+      const message = await claimNextMessage(queueName, connectionId);
 
       if (!message) {
-        return false;
+        return "empty";
       }
 
-      // Subscription may have been cancelled while the DB claim was running.
-      if (!this.isSubscribed(connection.id, queueName)) {
-        await rejectMessage(message.deliveryTag, connection.id, true);
-        return false;
+      claimedDeliveryTag = message.deliveryTag;
+
+      // The consumer may have cancelled while the DB claim was running.
+      if (!this.isSubscribed(connectionId, queueName)) {
+        await rejectMessage(message.deliveryTag, connectionId, true);
+        return "skipped";
       }
 
       if (!connection.isConnected) {
-        await requeueMessagesForConnection(connection.id);
-        return false;
+        await requeueMessagesForConnection(connectionId);
+        return "skipped";
       }
 
       this.inFlight.set(key, message.deliveryTag);
       this.deliveryQueues.set(message.deliveryTag, queueName);
-
-      const subscription = this.subscriptions
-        .get(connection.id)
-        ?.get(queueName);
 
       connection.send({
         version: 1,
         type: "EVENT",
         event: "MESSAGE_DELIVERED",
         payload: {
-          consumerTag: subscription?.consumerTag,
+          consumerTag: subscription.consumerTag,
           queueName,
           messageId: message.id,
           deliveryTag: message.deliveryTag,
@@ -125,32 +206,101 @@ export class ConsumerManager {
         }
       });
 
-      return true;
+      this.lastDispatched.set(queueName, connectionId);
+
+      return "delivered";
     } catch (error) {
       console.error(
         `[Consumer] Failed to deliver message from queue '${queueName}':`,
         error
       );
 
-      await requeueMessagesForConnection(connection.id);
-
-      const deliveryTag = this.inFlight.get(key);
-
-      if (deliveryTag) {
-        this.deliveryQueues.delete(deliveryTag);
+      if (claimedDeliveryTag) {
+        try {
+          await rejectMessage(
+            claimedDeliveryTag,
+            connectionId,
+            true
+          );
+        } catch (requeueError) {
+          console.error(
+            `[Consumer] Failed to requeue message '${claimedDeliveryTag}':`,
+            requeueError
+          );
+        }
       }
 
       this.inFlight.delete(key);
 
-      return false;
+      if (claimedDeliveryTag) {
+        this.deliveryQueues.delete(claimedDeliveryTag);
+      }
+
+      return "skipped";
     } finally {
       this.claiming.delete(key);
     }
   }
 
   /**
-   * Releases the prefetch slot after a valid ACK/NACK.
-   * Works even if the subscription was already cancelled.
+   * Runs a serialized round-robin dispatch loop for one queue.
+   */
+  async dispatchQueue(queueName: string): Promise<void> {
+    this.dispatchRequested.add(queueName);
+
+    if (this.dispatching.has(queueName)) {
+      return;
+    }
+
+    this.dispatching.add(queueName);
+
+    try {
+      do {
+        this.dispatchRequested.delete(queueName);
+
+        while (true) {
+          const subscription = this.getNextEligibleConsumer(queueName);
+
+          if (!subscription) {
+            break;
+          }
+
+          const result = await this.deliverToConsumer(subscription);
+
+          if (result === "empty") {
+            break;
+          }
+
+          // If a consumer became unavailable during the claim,
+          // continue and give another eligible consumer a chance.
+        }
+      } while (this.dispatchRequested.has(queueName));
+    } finally {
+      this.dispatching.delete(queueName);
+    }
+
+    // If another request arrived at the boundary of loop cleanup,
+    // schedule another pass.
+    if (this.dispatchRequested.has(queueName)) {
+      await this.dispatchQueue(queueName);
+    }
+  }
+
+  /**
+   * Compatibility method for existing command handlers.
+   * Dispatches the queue through the round-robin scheduler.
+   */
+  async deliverNext(
+    _connection: ClientConnection,
+    queueName: string
+  ): Promise<boolean> {
+    await this.dispatchQueue(queueName);
+    return true;
+  }
+
+  /**
+   * Releases a consumer's prefetch slot after ACK/NACK.
+   * Works even if the consumer subscription was cancelled.
    */
   settleDelivery(
     connectionId: string,
@@ -206,48 +356,59 @@ export class ConsumerManager {
    * Removes all subscriptions and requeues messages when a client disconnects.
    */
   async removeConnection(connectionId: string): Promise<void> {
-    this.subscriptions.delete(connectionId);
+    const subscriptions = this.subscriptions.get(connectionId);
+
+    const affectedQueues = new Set<string>();
+
+    if (subscriptions) {
+      for (const queueName of subscriptions.keys()) {
+        affectedQueues.add(queueName);
+      }
+    }
 
     for (const [key, deliveryTag] of this.inFlight) {
       if (key.startsWith(`${connectionId}:`)) {
+        const queueName = this.deliveryQueues.get(deliveryTag);
+
+        if (queueName) {
+          affectedQueues.add(queueName);
+        }
+
         this.inFlight.delete(key);
         this.deliveryQueues.delete(deliveryTag);
       }
     }
 
-    for (const key of this.claiming) {
-      if (key.startsWith(`${connectionId}:`)) {
-        this.claiming.delete(key);
-      }
-    }
+    this.subscriptions.delete(connectionId);
 
     await requeueMessagesForConnection(connectionId);
+
+    // Give remaining consumers a chance to receive requeued messages.
+    for (const queueName of affectedQueues) {
+      await this.dispatchQueue(queueName);
+    }
   }
 
   /**
-   * Attempts delivery to all subscribed consumers.
-   * Optionally excludes one connection (used after NACK/requeue).
+   * Dispatches all queues that currently have active subscriptions.
    */
   async deliverAvailable(
     excludeConnectionId?: string
   ): Promise<void> {
-    const deliveries: Promise<boolean>[] = [];
+    const queueNames = new Set<string>();
 
     for (const [connectionId, subscriptions] of this.subscriptions) {
       if (connectionId === excludeConnectionId) {
         continue;
       }
 
-      for (const subscription of subscriptions.values()) {
-        deliveries.push(
-          this.deliverNext(
-            subscription.connection,
-            subscription.queueName
-          )
-        );
+      for (const queueName of subscriptions.keys()) {
+        queueNames.add(queueName);
       }
     }
 
-    await Promise.all(deliveries);
+    await Promise.all(
+      [...queueNames].map((queueName) => this.dispatchQueue(queueName))
+    );
   }
 }

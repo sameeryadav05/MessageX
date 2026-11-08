@@ -66,7 +66,7 @@ export const handleAck: CommandHandlerFunction = async ({
 
     // With prefetch=1, the next message can now be delivered.
     if (queueName) {
-      await consumerManager.deliverNext(connection, queueName);
+      await consumerManager.dispatchQueue(queueName);
     }
 
     return {

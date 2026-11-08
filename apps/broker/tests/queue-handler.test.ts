@@ -9,11 +9,16 @@ import { pool } from "../src/database/database.js";
 import type { ClientConnection } from "../src/connection/client-connection.js";
 import type { ValidatedCommand } from "../src/protocol/protocol.schema.js";
 
-function createConnection(connected = true): ClientConnection {
+function createConnection(
+  connected = true,
+  authenticated = true
+): ClientConnection {
   return {
     id: "queue-test-connection",
     isConnected: connected,
-    clientName: connected ? "test-client" : null
+    clientName: connected ? "test-client" : null,
+    isAuthenticated: authenticated,
+    username: authenticated ? "admin" : null
   } as unknown as ClientConnection;
 }
 
@@ -40,7 +45,7 @@ describe("QUEUE_DECLARE handler", () => {
 
   it("rejects clients that have not connected", async () => {
     const response = await handler.handle(
-      createConnection(false),
+      createConnection(false, true),
       createCommand({ name: queueName })
     );
 
@@ -61,7 +66,10 @@ describe("QUEUE_DECLARE handler", () => {
   it("rejects invalid queue options", async () => {
     const response = await handler.handle(
       createConnection(),
-      createCommand({ name: queueName, durable: "yes" })
+      createCommand({
+        name: queueName,
+        durable: "yes"
+      })
     );
 
     assert.equal(response.success, false);
@@ -71,7 +79,10 @@ describe("QUEUE_DECLARE handler", () => {
   it("creates a queue in PostgreSQL", async () => {
     const response = await handler.handle(
       createConnection(),
-      createCommand({ name: queueName, durable: true })
+      createCommand({
+        name: queueName,
+        durable: true
+      })
     );
 
     assert.equal(response.success, true);
@@ -89,12 +100,18 @@ describe("QUEUE_DECLARE handler", () => {
   it("returns the existing queue on identical redeclaration", async () => {
     const first = await handler.handle(
       createConnection(),
-      createCommand({ name: queueName, durable: true })
+      createCommand({
+        name: queueName,
+        durable: true
+      })
     );
 
     const second = await handler.handle(
       createConnection(),
-      createCommand({ name: queueName, durable: true })
+      createCommand({
+        name: queueName,
+        durable: true
+      })
     );
 
     assert.equal(first.success, true);
@@ -104,7 +121,10 @@ describe("QUEUE_DECLARE handler", () => {
   it("rejects redeclaration with different options", async () => {
     const response = await handler.handle(
       createConnection(),
-      createCommand({ name: queueName, durable: false })
+      createCommand({
+        name: queueName,
+        durable: false
+      })
     );
 
     assert.equal(response.success, false);

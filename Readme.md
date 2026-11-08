@@ -46,7 +46,7 @@
 
 # project folder structure : 
 
-![alt text](image-1.png)
+![alt text](Images/image-1.png)
 
 # Role of apps/broker/src
 
@@ -66,7 +66,7 @@ management	    Express routes, controllers and middleware
 
 # HTTP Server vs TCP Server
 
-![alt text](image.png)
+![alt text](Images/image.png)
 
 ## TCP Server helps maintain persistence connection between application and messageX broker
 
@@ -86,18 +86,18 @@ messageX uses length-prefixed JSON instead of TCP frames
 TCP might deliver the data in multiple chunks, or combine several messages into one chunk.
 Therefore, we need our own framing mechanism.
 
-![alt text](image-2.png)
+![alt text](Images/image-2.png)
 
-![alt text](image-3.png)
+![alt text](Images/image-3.png)
 
 Notice requestId.
 
 It allows the SDK to match responses with their original requests, even when multiple requests are in progress on the same TCP connection. This is called request-response correlation.
 
 
-![alt text](image-4.png)
+![alt text](Images/image-4.png)
 
 
 # multiple consumer using consuming messages from same queue
 
-![alt text](image-5.png)
+![alt text](Images/image-5.png)

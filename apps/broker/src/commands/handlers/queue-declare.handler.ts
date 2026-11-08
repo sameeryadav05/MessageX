@@ -8,7 +8,6 @@ export const handleQueueDeclare: CommandHandlerFunction = async ({
   connection,
   command
 }) => {
-  // Client must CONNECT before declaring queues.
   if (!connection.isConnected || connection.clientName === null) {
     return {
       version: PROTOCOL_VERSION,
@@ -22,9 +21,15 @@ export const handleQueueDeclare: CommandHandlerFunction = async ({
     };
   }
 
-  const { name, durable, exclusive, autoDelete } = command.payload;
+  const {
+    name,
+    durable,
+    exclusive,
+    autoDelete,
+    maxDeliveryCount,
+    deadLetterQueue
+  } = command.payload;
 
-  // Validate queue name.
   if (
     typeof name !== "string" ||
     name.trim().length === 0 ||
@@ -42,7 +47,6 @@ export const handleQueueDeclare: CommandHandlerFunction = async ({
     };
   }
 
-  // Validate optional boolean settings.
   if (
     (durable !== undefined && typeof durable !== "boolean") ||
     (exclusive !== undefined && typeof exclusive !== "boolean") ||
@@ -60,12 +64,60 @@ export const handleQueueDeclare: CommandHandlerFunction = async ({
     };
   }
 
+  if (
+    maxDeliveryCount !== undefined &&
+    (
+      typeof maxDeliveryCount !== "number" ||
+      !Number.isInteger(maxDeliveryCount) ||
+      maxDeliveryCount < 1
+    )
+  ) {
+    return {
+      version: PROTOCOL_VERSION,
+      type: "RESPONSE",
+      requestId: command.requestId,
+      success: false,
+      error: {
+        code: "ERR_INVALID_MAX_DELIVERY_COUNT",
+        message: "maxDeliveryCount must be a positive integer"
+      }
+    };
+  }
+
+  if (
+    deadLetterQueue !== undefined &&
+    (
+      typeof deadLetterQueue !== "string" ||
+      deadLetterQueue.trim().length === 0 ||
+      deadLetterQueue.length > 255
+    )
+  ) {
+    return {
+      version: PROTOCOL_VERSION,
+      type: "RESPONSE",
+      requestId: command.requestId,
+      success: false,
+      error: {
+        code: "ERR_INVALID_DEAD_LETTER_QUEUE",
+        message: "deadLetterQueue must be a non-empty queue name of at most 255 characters"
+      }
+    };
+  }
+
   try {
+    const normalizedName = name.trim();
+    const normalizedDeadLetterQueue =
+      typeof deadLetterQueue === "string"
+        ? deadLetterQueue.trim()
+        : undefined;
+
     const queue = await declareQueue({
-      name: name.trim(),
+      name: normalizedName,
       durable: durable as boolean | undefined,
       exclusive: exclusive as boolean | undefined,
-      autoDelete: autoDelete as boolean | undefined
+      autoDelete: autoDelete as boolean | undefined,
+      maxDeliveryCount: maxDeliveryCount as number | undefined,
+      deadLetterQueue: normalizedDeadLetterQueue
     });
 
     return {
@@ -79,7 +131,9 @@ export const handleQueueDeclare: CommandHandlerFunction = async ({
           name: queue.name,
           durable: queue.durable,
           exclusive: queue.exclusive,
-          autoDelete: queue.auto_delete
+          autoDelete: queue.auto_delete,
+          maxDeliveryCount: queue.max_delivery_count,
+          deadLetterQueue: queue.dead_letter_queue_name
         }
       }
     };

@@ -422,8 +422,8 @@ async function initializeAdmin(credentials, databasePassword) {
 
     Env: [
       `DATABASE_URL=postgresql://messagex:${databasePassword}@postgres:5432/messagex`,
-      `MESSAGEX_DEFAULT_USER=${credentials.username}`,
-      `MESSAGEX_DEFAULT_PASS=${credentials.password}`
+      `MESSAGEX_ADMIN_USERNAME=${credentials.username}`,
+      `MESSAGEX_ADMIN_PASSWORD=${credentials.password}`
     ],
 
     HostConfig: {

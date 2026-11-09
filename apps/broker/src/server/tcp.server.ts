@@ -10,15 +10,19 @@ export class TcpServer {
   private readonly server: net.Server;
 
   public readonly connectionManager: ConnectionManager;
-  
 
   private readonly commandHandler: CommandHandler;
   private readonly consumerManager: ConsumerManager;
 
+  private readonly cleanupTasks = new Set<Promise<void>>();
+
+  private started = false;
+  private closing = false;
+
   constructor() {
-  this.connectionManager = new ConnectionManager();
-  this.consumerManager = new ConsumerManager();
-  this.commandHandler = new CommandHandler(this.consumerManager);
+    this.connectionManager = new ConnectionManager();
+    this.consumerManager = new ConsumerManager();
+    this.commandHandler = new CommandHandler(this.consumerManager);
 
     this.server = net.createServer((socket) => {
       console.log(
@@ -30,7 +34,6 @@ export class TcpServer {
 
         // Called whenever a valid protocol message arrives.
         async (client, message) => {
-          // Only process COMMAND messages.
           if (message.type !== "COMMAND") {
             console.warn(
               `[TCP] Unexpected message type from ${client.id}: ${message.type}`
@@ -39,45 +42,38 @@ export class TcpServer {
           }
 
           try {
-            // Dispatch command to its respective handler.
             const response = await this.commandHandler.handle(
               client,
               message
             );
 
-            // Send the response back through TCP.
             client.send(response);
-
           } catch (error) {
             console.error(
               `[TCP] Command execution failed for ${client.id}:`,
               error
             );
 
-            client.send({
-              version: 1,
-              type: "RESPONSE",
-              requestId: message.requestId,
-              success: false,
-              error: {
-                code: "ERR_INTERNAL",
-                message: "Internal broker error"
-              }
-            });
+            if (client.isConnected) {
+              client.send({
+                version: 1,
+                type: "RESPONSE",
+                requestId: message.requestId,
+                success: false,
+                error: {
+                  code: "ERR_INTERNAL",
+                  message: "Internal broker error"
+                }
+              });
+            }
           }
         },
 
         // Called whenever the connection closes.
-    (client) => {
-      this.connectionManager.remove(client.id);
-
-      void this.consumerManager.removeConnection(client.id).catch((error) => {
-        console.error(
-          `[Consumer] Failed to recover messages for connection ${client.id}:`,
-          error
-        );
-      });
-    }
+        (client) => {
+          this.connectionManager.remove(client.id);
+          this.trackConnectionCleanup(client.id);
+        }
       );
 
       this.connectionManager.add(connection);
@@ -88,7 +84,20 @@ export class TcpServer {
     });
   }
 
+  /**
+   * Starts the TCP broker server.
+   */
   start(port: number): void {
+    if (this.started) {
+      throw new Error("TCP server has already been started");
+    }
+
+    if (this.closing) {
+      throw new Error("Cannot start a TCP server that is closing");
+    }
+
+    this.started = true;
+
     this.server.listen(port, "127.0.0.1", () => {
       console.log(
         `[TCP] MessageX Broker listening on 127.0.0.1:${port}`
@@ -96,25 +105,84 @@ export class TcpServer {
     });
   }
 
-  close(): void {
-    console.log("[TCP] Closing all client connections...");
+  /**
+   * Tracks asynchronous cleanup after a client disconnects.
+   */
+  private trackConnectionCleanup(connectionId: string): void {
+    const task = this.consumerManager
+      .removeConnection(connectionId)
+      .catch((error) => {
+        console.error(
+          `[Consumer] Failed to recover messages for connection ${connectionId}:`,
+          error
+        );
+      })
+      .finally(() => {
+        this.cleanupTasks.delete(task);
+      });
 
-    this.connectionManager.closeAll();
+    this.cleanupTasks.add(task);
+  }
 
-    this.server.close((error) => {
-      if (error) {
-        console.error("[TCP] Shutdown error:", error);
+  /**
+   * Stops accepting connections, closes active connections,
+   * and waits for message recovery to finish.
+   */
+  async close(): Promise<void> {
+    if (this.closing) {
+      return;
+    }
+
+    this.closing = true;
+
+    console.log("[TCP] Closing TCP server...");
+
+    // Stop accepting new connections.
+    const serverClosed = new Promise<void>((resolve, reject) => {
+      if (!this.started || !this.server.listening) {
+        resolve();
         return;
       }
 
-      console.log("[TCP] Server stopped");
+      this.server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
     });
+
+    // Closing sockets triggers the connection cleanup callbacks.
+    this.connectionManager.closeAll();
+
+    try {
+      // Wait until all active TCP connections have closed.
+      await serverClosed;
+
+      // Wait for all disconnect recovery operations.
+      while (this.cleanupTasks.size > 0) {
+        await Promise.all([...this.cleanupTasks]);
+      }
+
+      console.log(
+        "[TCP] Server stopped and connection recovery completed"
+      );
+    } catch (error) {
+      console.error("[TCP] Shutdown error:", error);
+      throw error;
+    }
   }
 
-
-    async recoverExpiredDeliveries(
+  /**
+   * Recovers messages whose acknowledgement timeout has expired.
+   */
+  async recoverExpiredDeliveries(
     timeoutSeconds: number
   ): Promise<number> {
-    return this.consumerManager.recoverExpiredDeliveries(timeoutSeconds);
+    return this.consumerManager.recoverExpiredDeliveries(
+      timeoutSeconds
+    );
   }
 }

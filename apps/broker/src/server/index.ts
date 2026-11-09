@@ -55,26 +55,48 @@ recoveryTimer.unref();
 
   let shuttingDown = false;
 
-  async function shutdown(): Promise<void> {
-    if (shuttingDown) {
-      return;
-    }
+async function shutdown(): Promise<void> {
+  if (shuttingDown) {
+    return;
+  }
 
-    clearInterval(recoveryTimer);
-    shuttingDown = true;
-    console.log("\n[MessageX] Shutting down...");
+  shuttingDown = true;
+  clearInterval(recoveryTimer);
 
-    httpServer.close();
+  console.log("\n[MessageX] Shutting down...");
 
-    tcpServer.close();
+  // Stop HTTP and TCP servers, and wait for their cleanup.
+  const results = await Promise.allSettled([
+    new Promise<void>((resolve, reject) => {
+      httpServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
 
-    try {
-      await closeDatabase();
-    } catch (error) {
-      console.error("[Database] Shutdown error:", error);
+        resolve();
+      });
+    }),
+    tcpServer.close()
+  ]);
+
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("[MessageX] Server shutdown error:", result.reason);
       process.exitCode = 1;
     }
   }
+
+  // Close PostgreSQL only after connection recovery has completed.
+  try {
+    await closeDatabase();
+  } catch (error) {
+    console.error("[Database] Shutdown error:", error);
+    process.exitCode = 1;
+  }
+
+  console.log("[MessageX] Shutdown complete");
+}
 
   process.once("SIGINT", () => {
     void shutdown();

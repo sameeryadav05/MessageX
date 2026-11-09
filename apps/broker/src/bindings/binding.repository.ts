@@ -1,4 +1,3 @@
-
 import { pool } from "../database/database.js";
 
 export interface BindingOptions {
@@ -109,4 +108,42 @@ export async function getAllBindings(): Promise<BindingRecord[]> {
   );
 
   return result.rows;
+}
+
+export interface UnbindOptions {
+  exchangeName: string;
+  queueName: string;
+  routingKey?: string;
+  arguments?: Record<string, unknown>;
+}
+
+export async function unbindQueueFromExchange(
+  options: UnbindOptions
+): Promise<boolean> {
+  const {
+    exchangeName,
+    queueName,
+    routingKey = "",
+    arguments: bindingArguments = {}
+  } = options;
+
+  const result = await pool.query(
+    `DELETE FROM bindings b
+     USING exchanges e, queues q
+     WHERE b.exchange_id = e.id
+       AND b.queue_id = q.id
+       AND e.name = $1
+       AND q.name = $2
+       AND b.routing_key = $3
+       AND b.arguments = $4::jsonb
+     RETURNING b.id`,
+    [
+      exchangeName,
+      queueName,
+      routingKey,
+      JSON.stringify(bindingArguments)
+    ]
+  );
+
+  return (result.rowCount ?? 0) > 0;
 }

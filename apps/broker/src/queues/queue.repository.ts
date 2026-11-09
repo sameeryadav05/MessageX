@@ -1,4 +1,3 @@
-
 import { pool } from "../database/database.js";
 
 export interface QueueOptions {
@@ -8,6 +7,7 @@ export interface QueueOptions {
   autoDelete?: boolean;
   maxDeliveryCount?: number;
   deadLetterQueue?: string;
+  ownerConnectionId?: string;
 }
 
 export interface QueueRecord {
@@ -19,6 +19,7 @@ export interface QueueRecord {
   max_delivery_count: number;
   dead_letter_queue_id: string | null;
   dead_letter_queue_name: string | null;
+  owner_connection_id: string | null;
   created_at: Date;
 }
 
@@ -32,6 +33,7 @@ const QUEUE_SELECT = `
     q.max_delivery_count,
     q.dead_letter_queue_id,
     dlq.name AS dead_letter_queue_name,
+    q.owner_connection_id,
     q.created_at
   FROM queues q
   LEFT JOIN queues dlq
@@ -47,21 +49,25 @@ export async function declareQueue(
     exclusive = false,
     autoDelete = false,
     maxDeliveryCount = 5,
-    deadLetterQueue
+    deadLetterQueue,
+    ownerConnectionId
   } = options;
 
-  if (
-    !Number.isInteger(maxDeliveryCount) ||
-    maxDeliveryCount < 1
-  ) {
+  if (!Number.isInteger(maxDeliveryCount) || maxDeliveryCount < 1) {
     throw new Error("maxDeliveryCount must be a positive integer");
   }
 
-  if (deadLetterQueue !== undefined) {
-    if (deadLetterQueue === name) {
-      throw new Error("A queue cannot be its own dead-letter queue");
-    }
+  if (deadLetterQueue !== undefined && deadLetterQueue === name) {
+    throw new Error("A queue cannot be its own dead-letter queue");
   }
+
+  if (exclusive && !ownerConnectionId) {
+    throw new Error("An exclusive queue requires an owner connection");
+  }
+
+  const normalizedOwnerConnectionId = exclusive
+    ? ownerConnectionId!
+    : null;
 
   const client = await pool.connect();
 
@@ -94,9 +100,10 @@ export async function declareQueue(
          exclusive,
          auto_delete,
          max_delivery_count,
-         dead_letter_queue_id
+         dead_letter_queue_id,
+         owner_connection_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (name) DO NOTHING`,
       [
         name,
@@ -104,7 +111,8 @@ export async function declareQueue(
         exclusive,
         autoDelete,
         maxDeliveryCount,
-        deadLetterQueueId
+        deadLetterQueueId,
+        normalizedOwnerConnectionId
       ]
     );
 
@@ -121,21 +129,21 @@ export async function declareQueue(
       throw new Error("Queue could not be created or retrieved");
     }
 
-    // Redeclaration must use the same configuration.
+    // Redeclaration must use the same configuration and owner.
     if (
       queue.durable !== durable ||
       queue.exclusive !== exclusive ||
       queue.auto_delete !== autoDelete ||
       queue.max_delivery_count !== maxDeliveryCount ||
-      queue.dead_letter_queue_id !== deadLetterQueueId
+      queue.dead_letter_queue_id !== deadLetterQueueId ||
+      queue.owner_connection_id !== normalizedOwnerConnectionId
     ) {
       throw new Error(
-        "Queue already exists with different configuration"
+        "Queue already exists with different configuration or owner"
       );
     }
 
     await client.query("COMMIT");
-
     return queue;
   } catch (error) {
     await client.query("ROLLBACK");
@@ -164,4 +172,17 @@ export async function getAllQueues(): Promise<QueueRecord[]> {
   );
 
   return result.rows;
+}
+
+export async function deleteQueue(
+  name: string
+): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM queues
+     WHERE name = $1
+     RETURNING id`,
+    [name]
+  );
+
+  return (result.rowCount ?? 0) > 0;
 }

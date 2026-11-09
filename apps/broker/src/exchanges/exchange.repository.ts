@@ -81,3 +81,16 @@ export async function getAllExchanges(): Promise<ExchangeRecord[]> {
 
   return result.rows;
 }
+
+export async function deleteExchange(
+  name: string
+): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM exchanges
+     WHERE name = $1
+     RETURNING id`,
+    [name]
+  );
+
+  return (result.rowCount ?? 0) > 0;
+}

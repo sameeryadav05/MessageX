@@ -1,4 +1,3 @@
-
 import { PROTOCOL_VERSION } from "../../protocol/protocol.constants.js";
 import { declareQueue } from "../../queues/queue.repository.js";
 
@@ -117,7 +116,8 @@ export const handleQueueDeclare: CommandHandlerFunction = async ({
       exclusive: exclusive as boolean | undefined,
       autoDelete: autoDelete as boolean | undefined,
       maxDeliveryCount: maxDeliveryCount as number | undefined,
-      deadLetterQueue: normalizedDeadLetterQueue
+      deadLetterQueue: normalizedDeadLetterQueue,
+      ownerConnectionId: connection.id
     });
 
     return {

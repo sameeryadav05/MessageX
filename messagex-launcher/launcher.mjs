@@ -12,6 +12,8 @@ const docker = new Docker({
   socketPath: "/var/run/docker.sock"
 });
 
+// This version selects the broker and dashboard image tags.
+// It is independent of the launcher Docker image tag.
 const VERSION = process.env.MESSAGEX_VERSION || "0.1.0";
 
 const BROKER_IMAGE =
@@ -20,8 +22,16 @@ const BROKER_IMAGE =
 const DASHBOARD_IMAGE =
   `sameeryadav2005/messagex-dashboard:${VERSION}`;
 
-const NETWORK = "messagex-private";
-const DATA_VOLUME = "messagex_data";
+const OWNER_LABEL = "com.imsameer.messagex.launcher";
+const OWNER_VALUE = "true";
+
+const RESOURCE_LABELS = {
+  [OWNER_LABEL]: OWNER_VALUE
+};
+
+// Dedicated resource names prevent collisions with the Compose deployment.
+const NETWORK = "messagex-launcher-private";
+const DATA_VOLUME = "messagex_launcher_postgres_data";
 
 const DASHBOARD_PORT =
   String(process.env.DASHBOARD_PORT || 15672);
@@ -38,21 +48,28 @@ const CREDENTIALS_FILE = `${DATA_DIR}/credentials.txt`;
 const names = {
   postgres: "messagex-launcher-postgres",
   broker: "messagex-launcher-broker",
-  dashboard: "messagex-launcher-dashboard"
+  dashboard: "messagex-launcher-dashboard",
+  adminInit: "messagex-launcher-admin-init"
 };
+
+const recreatedContainers = new Set();
 
 const log = (message) => {
   console.log(`[MessageX Launcher] ${message}`);
 };
 
-// Pull image if it is not already present.
+function isNotFound(error) {
+  return error.statusCode === 404;
+}
+
+// Pull an image only when it is not already present locally.
 async function ensureImage(image) {
   try {
     await docker.getImage(image).inspect();
     log(`Image already available: ${image}`);
     return;
   } catch (error) {
-    if (error.statusCode !== 404) throw error;
+    if (!isNotFound(error)) throw error;
   }
 
   log(`Pulling ${image}...`);
@@ -71,45 +88,76 @@ async function ensureImage(image) {
   log(`Pulled ${image}`);
 }
 
-// Create private Docker network.
+// Create or verify the dedicated Docker network.
 async function ensureNetwork() {
   try {
-    await docker.getNetwork(NETWORK).inspect();
+    const info = await docker.getNetwork(NETWORK).inspect();
+
+    if (info.Labels?.[OWNER_LABEL] !== OWNER_VALUE) {
+      throw new Error(
+        `Network "${NETWORK}" exists but is not owned by MessageX Launcher. Refusing to use it.`
+      );
+    }
+
+    if (info.Driver !== "bridge" || info.Internal === true) {
+      throw new Error(
+        `Network "${NETWORK}" has an unexpected configuration. Refusing to use it.`
+      );
+    }
+
+    log("MessageX network exists and ownership is verified.");
   } catch (error) {
-    if (error.statusCode !== 404) throw error;
+    if (!isNotFound(error)) throw error;
 
     await docker.createNetwork({
       Name: NETWORK,
-      Driver: "bridge"
+      Driver: "bridge",
+      Internal: false,
+      Labels: RESOURCE_LABELS
     });
 
-    log("MessageX network created");
+    log("MessageX network created.");
   }
 }
-// Create persistent PostgreSQL volume.
+
+// Create or verify the persistent PostgreSQL volume.
+// Never remove this volume automatically.
 async function ensureVolume() {
   try {
-    await docker.getVolume(DATA_VOLUME).inspect();
+    const info = await docker.getVolume(DATA_VOLUME).inspect();
+
+    if (info.Labels?.[OWNER_LABEL] !== OWNER_VALUE) {
+      throw new Error(
+        `Volume "${DATA_VOLUME}" exists but is not owned by MessageX Launcher. Refusing to use it.`
+      );
+    }
+
+    if (info.Driver !== "local") {
+      throw new Error(
+        `Volume "${DATA_VOLUME}" uses unexpected driver "${info.Driver}".`
+      );
+    }
+
+    log("PostgreSQL volume exists and ownership is verified.");
   } catch (error) {
-    if (error.statusCode !== 404) throw error;
+    if (!isNotFound(error)) throw error;
 
     await docker.createVolume({
-      Name: DATA_VOLUME
+      Name: DATA_VOLUME,
+      Driver: "local",
+      Labels: RESOURCE_LABELS
     });
 
-    log("Database volume created");
+    log("PostgreSQL volume created.");
   }
 }
 
-// Generate credentials once and persist them.
+// Read persisted credentials or generate them once.
 async function getCredentials() {
   await mkdir(DATA_DIR, { recursive: true });
 
   try {
-    const content = await readFile(
-      CREDENTIALS_FILE,
-      "utf8"
-    );
+    const content = await readFile(CREDENTIALS_FILE, "utf8");
 
     const values = Object.fromEntries(
       content.trim().split("\n").map((line) => {
@@ -130,7 +178,6 @@ async function getCredentials() {
       ...values,
       newlyGenerated: false
     };
-
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
@@ -157,7 +204,7 @@ async function getCredentials() {
   };
 }
 
-// Generate persistent PostgreSQL password.
+// Read persisted PostgreSQL password or generate it once.
 async function getDatabasePassword() {
   const file = `${DATA_DIR}/postgres-password`;
 
@@ -179,7 +226,7 @@ async function getDatabasePassword() {
   return password;
 }
 
-// Inspect an existing container.
+// Inspect a container by its exact name.
 async function inspectContainer(name) {
   try {
     const container = docker.getContainer(name);
@@ -188,31 +235,65 @@ async function inspectContainer(name) {
       container,
       info: await container.inspect()
     };
-
   } catch (error) {
-    if (error.statusCode === 404) return null;
+    if (isNotFound(error)) return null;
     throw error;
   }
 }
 
-// Create or start a container.
+// Remove a container only after verifying that this launcher owns it.
+async function removeOwnedContainer(name, existing) {
+  if (existing.info.Config.Labels?.[OWNER_LABEL] !== OWNER_VALUE) {
+    throw new Error(
+      `Container "${name}" exists but is not owned by MessageX Launcher. Refusing to modify it.`
+    );
+  }
+
+  if (existing.info.State.Running) {
+    await existing.container.stop({ t: 10 });
+  }
+
+  await existing.container.remove();
+}
+
+// Create, reuse, or replace a launcher-owned container.
+// Replacements never remove named volumes.
 async function ensureRunning(name, config) {
   const existing = await inspectContainer(name);
 
   if (existing) {
-    if (!existing.info.State.Running) {
-      await existing.container.start();
-      log(`Started existing container: ${name}`);
-    } else {
-      log(`Already running: ${name}`);
+    if (existing.info.Config.Labels?.[OWNER_LABEL] !== OWNER_VALUE) {
+      throw new Error(
+        `Container "${name}" already exists but is not owned by MessageX Launcher. Refusing to modify it.`
+      );
     }
 
-    return existing.container;
+    const expectedImage = await docker.getImage(config.Image).inspect();
+    const imageMatches = existing.info.Image === expectedImage.Id;
+
+    if (!imageMatches) {
+      log(`Replacing outdated launcher-owned container: ${name}`);
+      await removeOwnedContainer(name, existing);
+      recreatedContainers.add(name);
+    } else {
+      if (!existing.info.State.Running) {
+        await existing.container.start();
+        log(`Started existing container: ${name}`);
+      } else {
+        log(`Already running: ${name}`);
+      }
+
+      return existing.container;
+    }
   }
 
   const container = await docker.createContainer({
     ...config,
-    name
+    name,
+    Labels: {
+      ...(config.Labels || {}),
+      ...RESOURCE_LABELS
+    }
   });
 
   await container.start();
@@ -256,21 +337,21 @@ async function waitForHealth(
     await sleep(2000);
   }
 
-  throw new Error(
-    `Timed out waiting for ${label}`
-  );
+  throw new Error(`Timed out waiting for ${label}`);
 }
 
 // Create the initial administrator account.
-async function initializeAdmin(
-  credentials,
-  databasePassword
-) {
-  const name = "messagex-launcher-admin-init";
-
+async function initializeAdmin(credentials, databasePassword) {
+  const name = names.adminInit;
   const existing = await inspectContainer(name);
 
   if (existing) {
+    if (existing.info.Config.Labels?.[OWNER_LABEL] !== OWNER_VALUE) {
+      throw new Error(
+        `Container "${name}" already exists but is not owned by MessageX Launcher. Refusing to modify it.`
+      );
+    }
+
     if (existing.info.State.Running) {
       await existing.container.wait();
     }
@@ -278,18 +359,17 @@ async function initializeAdmin(
     const info = await existing.container.inspect();
 
     if (info.State.ExitCode === 0) {
-      log("Admin initialization already completed");
+      log("Admin initialization already completed.");
       return;
     }
 
-    await existing.container.remove({
-      force: true
-    });
+    await existing.container.remove({ force: true });
   }
 
   const container = await docker.createContainer({
     name,
     Image: BROKER_IMAGE,
+    Labels: RESOURCE_LABELS,
 
     Cmd: [
       "node",
@@ -335,7 +415,7 @@ async function initializeAdmin(
 
   await container.remove();
 
-  log("Admin initialization completed");
+  log("Admin initialization completed.");
 }
 
 // Main startup process.
@@ -414,9 +494,7 @@ async function main() {
         "HOST=0.0.0.0",
         "HTTP_PORT=3000",
         "TCP_PORT=5678",
-
         `DATABASE_URL=postgresql://messagex:${databasePassword}@postgres:5432/messagex`,
-
         "ACK_TIMEOUT_SECONDS=30",
         "ACK_TIMEOUT_CHECK_INTERVAL_MS=5000"
       ],
@@ -468,11 +546,18 @@ async function main() {
 
   await waitForHealth(broker, "MessageX broker");
 
-  // 3. Initialize admin account
-  await initializeAdmin(
-    credentials,
-    databasePassword
-  );
+  // 3. Initialize admin account.
+  await initializeAdmin(credentials, databasePassword);
+
+  // If the broker was replaced, recreate the dashboard too so its
+  // Nginx upstream starts with the broker's current container IP.
+  if (recreatedContainers.has(names.broker)) {
+    const dashboardExisting = await inspectContainer(names.dashboard);
+
+    if (dashboardExisting) {
+      await removeOwnedContainer(names.dashboard, dashboardExisting);
+    }
+  }
 
   // 4. Management dashboard
   await ensureRunning(
@@ -515,13 +600,8 @@ async function main() {
   log("MessageX started successfully");
   log("================================");
 
-  log(
-    `Dashboard: http://<SERVER_PUBLIC_IP>:${DASHBOARD_PORT}`
-  );
-
-  log(
-    `Broker TCP: ${TCP_HOST_IP}:${TCP_HOST_PORT}`
-  );
+  log(`Dashboard: http://<SERVER_PUBLIC_IP>:${DASHBOARD_PORT}`);
+  log(`Broker TCP: ${TCP_HOST_IP}:${TCP_HOST_PORT}`);
 
   if (credentials.newlyGenerated) {
     log(`Admin username: ${credentials.username}`);
@@ -540,10 +620,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(
-    "[MessageX Launcher] Startup failed:",
-    error
-  );
-
+  console.error("[MessageX Launcher] Startup failed:", error);
   process.exit(1);
 });

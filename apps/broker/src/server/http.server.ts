@@ -9,12 +9,57 @@ import {
 import { getAllBindings } from "../bindings/binding.repository.js";
 import { pool } from "../database/database.js";
 import type { ConnectionManager } from "../connection/connection-manager.js";
-
+import os from "node:os";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 const app = express();
 let activeConnectionManager: ConnectionManager | null = null;
 
+// Monitor Node.js event-loop latency.
+const eventLoopMonitor = monitorEventLoopDelay({
+  resolution: 20
+});
+
+eventLoopMonitor.enable();
+
+// CPU usage baseline for interval-based measurements.
+let previousCpuUsage = process.cpuUsage();
+let previousCpuTime = process.hrtime.bigint();
+
+function getProcessCpuUsage(): number {
+  const currentCpuUsage = process.cpuUsage();
+  const currentCpuTime = process.hrtime.bigint();
+
+  const elapsedMicroseconds =
+    Number(currentCpuTime - previousCpuTime) / 1000;
+
+  const usedMicroseconds =
+    currentCpuUsage.user - previousCpuUsage.user +
+    currentCpuUsage.system - previousCpuUsage.system;
+
+  previousCpuUsage = currentCpuUsage;
+  previousCpuTime = currentCpuTime;
+
+  if (elapsedMicroseconds <= 0) {
+    return 0;
+  }
+
+  const cpuCount = Math.max(os.cpus().length, 1);
+
+  return Number(
+    ((usedMicroseconds / elapsedMicroseconds / cpuCount) * 100).toFixed(2)
+  );
+}
+
+function bytesToMB(bytes: number): number {
+  return Number((bytes / (1024 * 1024)).toFixed(2));
+}
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.get('/ping',(_req,res)=>{
+  res.status(200).send('pong')
+})
 
 // Health check
 app.get("/health", (_req, res) => {
@@ -282,6 +327,190 @@ app.get("/api/queues/:name/stats", async (req, res) => {
       }
     });
   }
+});
+
+// Inspect messages in a queue with pagination.
+app.get("/api/queues/:name/messages", async (req, res) => {
+  try {
+    const queueName = req.params.name;
+
+    const limit = Number(req.query.limit ?? 20);
+    const offset = Number(req.query.offset ?? 0);
+
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !Number.isInteger(offset) ||
+      offset < 0
+    ) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: "ERR_INVALID_PAGINATION",
+          message: "limit must be 1-100 and offset must be >= 0"
+        }
+      });
+      return;
+    }
+
+    const queueResult = await pool.query<{ id: string }>(
+      `SELECT id FROM queues WHERE name = $1`,
+      [queueName]
+    );
+
+    const queue = queueResult.rows[0];
+
+    if (!queue) {
+      res.status(404).json({
+        success: false,
+        error: {
+          code: "ERR_QUEUE_NOT_FOUND",
+          message: "Queue not found"
+        }
+      });
+      return;
+    }
+
+    const [messagesResult, countResult] = await Promise.all([
+      pool.query(
+        `SELECT
+           id,
+           payload,
+           headers,
+           routing_key,
+           status,
+           delivery_count,
+           created_at,
+           delivered_at
+         FROM messages
+         WHERE queue_id = $1
+         ORDER BY created_at DESC, id DESC
+         LIMIT $2 OFFSET $3`,
+        [queue.id, limit, offset]
+      ),
+
+      pool.query<{ total: number }>(
+        `SELECT COUNT(*)::int AS total
+         FROM messages
+         WHERE queue_id = $1`,
+        [queue.id]
+      )
+    ]);
+
+    res.status(200).json({
+      success: true,
+      queueName,
+      pagination: {
+        total: countResult.rows[0].total,
+        limit,
+        offset,
+        hasMore: offset + messagesResult.rows.length <
+          countResult.rows[0].total
+      },
+      messages: messagesResult.rows.map((message) => ({
+        id: message.id,
+        payload: JSON.parse(message.payload.toString("utf8")),
+        headers: message.headers,
+        routingKey: message.routing_key,
+        status: message.status,
+        deliveryCount: message.delivery_count,
+        createdAt: message.created_at,
+        deliveredAt: message.delivered_at
+      }))
+    });
+  } catch (error) {
+    console.error("[HTTP] Failed to inspect messages:", error);
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "ERR_INTERNAL",
+        message: "Failed to inspect queue messages"
+      }
+    });
+  }
+});
+
+// Detailed broker health and system metrics.
+app.get("/api/health/detailed", async (_req, res) => {
+  const memory = process.memoryUsage();
+
+  let databaseStatus: "healthy" | "unhealthy" = "healthy";
+
+  try {
+    await pool.query("SELECT 1");
+  } catch (error) {
+    databaseStatus = "unhealthy";
+
+    console.error(
+      "[Health] PostgreSQL health check failed:",
+      error
+    );
+  }
+
+  const cpuUsage = getProcessCpuUsage();
+
+  const totalSystemMemory = os.totalmem();
+  const freeSystemMemory = os.freemem();
+
+  const eventLoopMeanMs = Number(
+    (eventLoopMonitor.mean / 1e6).toFixed(2)
+  );
+
+  const eventLoopP95Ms = Number(
+    (eventLoopMonitor.percentile(95) / 1e6).toFixed(2)
+  );
+
+  const brokerStatus =
+    databaseStatus === "healthy" ? "healthy" : "degraded";
+
+  res.status(databaseStatus === "healthy" ? 200 : 503).json({
+    success: databaseStatus === "healthy",
+    health: {
+      status: brokerStatus,
+      service: "MessageX Broker",
+      timestamp: new Date().toISOString(),
+      uptimeSeconds: Math.floor(process.uptime()),
+      database: {
+        status: databaseStatus
+      },
+      connections: {
+        active: activeConnectionManager?.count ?? 0
+      }
+    },
+    resources: {
+      process: {
+        cpuUsagePercent: cpuUsage,
+        memory: {
+          rssMB: bytesToMB(memory.rss),
+          heapUsedMB: bytesToMB(memory.heapUsed),
+          heapTotalMB: bytesToMB(memory.heapTotal),
+          externalMB: bytesToMB(memory.external),
+          arrayBuffersMB: bytesToMB(memory.arrayBuffers)
+        }
+      },
+      system: {
+        cpuCores: os.cpus().length,
+        totalMemoryMB: bytesToMB(totalSystemMemory),
+        freeMemoryMB: bytesToMB(freeSystemMemory),
+        usedMemoryMB: bytesToMB(
+          totalSystemMemory - freeSystemMemory
+        ),
+        memoryUsagePercent: Number(
+          (
+            ((totalSystemMemory - freeSystemMemory) /
+              totalSystemMemory) *
+            100
+          ).toFixed(2)
+        )
+      },
+      eventLoop: {
+        meanDelayMs: eventLoopMeanMs,
+        p95DelayMs: eventLoopP95Ms
+      }
+    }
+  });
 });
 
 export function startHttpServer(

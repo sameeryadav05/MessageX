@@ -1,6 +1,7 @@
 
 import { PROTOCOL_VERSION } from "../../protocol/protocol.constants.js";
 import { releaseMessage } from "../../messages/message.repository.js";
+import { brokerMetrics } from "../../monitoring/metrics.js";
 import type { CommandHandlerFunction } from "../command.types.js";
 
 export const handleNack: CommandHandlerFunction = async ({
@@ -76,6 +77,15 @@ export const handleNack: CommandHandlerFunction = async ({
       };
     }
 
+    // Record a successfully processed NACK.
+    brokerMetrics.recordRejected();
+
+    if (result.deadLettered) {
+      brokerMetrics.recordDeadLettered();
+    } else if (requeue) {
+      brokerMetrics.recordRequeued();
+    }
+
     // Release the consumer's prefetch slot after DB operation succeeds.
     const queueName = consumerManager.settleDelivery(
       connection.id,
@@ -111,7 +121,7 @@ export const handleNack: CommandHandlerFunction = async ({
       payload: {
         deliveryTag,
         rejected: true,
-        requeued: requeue,
+        requeued: requeue && !result.deadLettered,
         deadLettered: result.deadLettered,
         sourceQueue: result.sourceQueueName,
         destinationQueue: result.destinationQueueName,

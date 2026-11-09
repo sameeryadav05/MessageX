@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ClientConnection } from "../connection/client-connection.js";
-
+import { brokerMetrics } from "../monitoring/metrics.js";
 import {
   claimNextMessage,
   releaseMessage,
@@ -100,7 +100,15 @@ export class ConsumerManager {
     timeoutSeconds: number
   ): Promise<number> {
     const expiredDeliveries = await requeueExpiredMessages(timeoutSeconds);
+    for (const delivery of expiredDeliveries) {
+      brokerMetrics.recordRecovered();
 
+      if (delivery.deadLettered) {
+        brokerMetrics.recordDeadLettered();
+      } else if (delivery.destinationQueueName) {
+        brokerMetrics.recordRequeued();
+      }
+    }
     const affectedQueues = new Set<string>();
 
     for (const delivery of expiredDeliveries) {
@@ -138,6 +146,12 @@ export class ConsumerManager {
 
     return expiredDeliveries.length;
   }
+
+
+
+
+
+
 
   isSubscribed(connectionId: string, queueName: string): boolean {
     return this.subscriptions.get(connectionId)?.has(queueName) ?? false;
@@ -293,6 +307,8 @@ export class ConsumerManager {
         }
       });
 
+      brokerMetrics.recordDelivered();
+
       this.lastDispatched.set(queueName, connectionId);
 
       return "delivered";
@@ -335,6 +351,10 @@ export class ConsumerManager {
       this.claiming.delete(key);
     }
   }
+
+
+
+
 
   /**
    * Runs a serialized round-robin dispatch loop for one queue.

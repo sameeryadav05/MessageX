@@ -1,6 +1,7 @@
 import { PROTOCOL_VERSION } from "../../protocol/protocol.constants.js";
 import { publishMessage } from "../../messages/message.repository.js";
 
+import { brokerMetrics } from "../../monitoring/metrics.js";
 import type { CommandHandlerFunction } from "../command.types.js";
 
 export const handlePublish: CommandHandlerFunction = async ({
@@ -96,6 +97,7 @@ export const handlePublish: CommandHandlerFunction = async ({
       message,
       headers: headers as Record<string, unknown> | undefined
     });
+    brokerMetrics.recordPublished(result.routedQueues);
 
     // Notify active consumers after messages are committed to PostgreSQL.
     await consumerManager.deliverAvailable(); 

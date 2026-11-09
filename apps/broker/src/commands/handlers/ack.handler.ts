@@ -1,5 +1,7 @@
+
 import { PROTOCOL_VERSION } from "../../protocol/protocol.constants.js";
 import { acknowledgeMessage } from "../../messages/message.repository.js";
+import { brokerMetrics } from "../../monitoring/metrics.js";
 import type { CommandHandlerFunction } from "../command.types.js";
 
 export const handleAck: CommandHandlerFunction = async ({
@@ -7,6 +9,7 @@ export const handleAck: CommandHandlerFunction = async ({
   command,
   consumerManager
 }) => {
+  // Client must be connected before acknowledging messages.
   if (!connection.isConnected || connection.clientName === null) {
     return {
       version: PROTOCOL_VERSION,
@@ -22,6 +25,7 @@ export const handleAck: CommandHandlerFunction = async ({
 
   const { deliveryTag } = command.payload;
 
+  // Validate delivery tag.
   if (
     typeof deliveryTag !== "string" ||
     deliveryTag.trim().length === 0
@@ -58,7 +62,10 @@ export const handleAck: CommandHandlerFunction = async ({
       };
     }
 
-    // Release the prefetch slot only after the database ACK succeeds.
+    // Record only successful database acknowledgements.
+    brokerMetrics.recordAcknowledged();
+
+    // Release the consumer's prefetch slot after DB ACK succeeds.
     const queueName = consumerManager.settleDelivery(
       connection.id,
       deliveryTag

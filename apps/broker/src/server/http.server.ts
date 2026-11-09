@@ -11,6 +11,8 @@ import { pool } from "../database/database.js";
 import type { ConnectionManager } from "../connection/connection-manager.js";
 import os from "node:os";
 import { monitorEventLoopDelay } from "node:perf_hooks";
+import { brokerMetrics } from "../monitoring/metrics.js";
+
 const app = express();
 let activeConnectionManager: ConnectionManager | null = null;
 
@@ -510,6 +512,17 @@ app.get("/api/health/detailed", async (_req, res) => {
         p95DelayMs: eventLoopP95Ms
       }
     }
+  });
+});
+
+
+// Broker message throughput and performance counters.
+app.get("/api/metrics", (_req, res) => {
+  res.status(200).json({
+    success: true,
+    service: "MessageX Broker",
+    timestamp: new Date().toISOString(),
+    metrics: brokerMetrics.getSnapshot()
   });
 });
 

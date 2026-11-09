@@ -9,7 +9,10 @@
   "scripts": {
     "dev:broker": "npm run dev --workspace=@messagex/broker",
     "build:broker": "npm run build --workspace=@messagex/broker",
-    "test:broker": "npm run test --workspace=@messagex/broker"
+    "test:broker": "npm run test --workspace=@messagex/broker",
+    "dev:dashboard": "npm run dev --workspace=@messagex/dashboard",
+    "build:dashboard": "npm run build --workspace=@messagex/dashboard",
+    "preview:dashboard": "npm run preview --workspace=@messagex/dashboard"
   },
   "type": "module",
   "allowScripts": {

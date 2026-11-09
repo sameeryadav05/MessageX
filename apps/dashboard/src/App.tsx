@@ -1,5 +1,4 @@
-
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Navigate,
   Route,
@@ -18,26 +17,76 @@ import { usePolling } from "./hooks/usePolling";
 import {
   disconnectBroker,
   getBasicHealth,
+  loginToBroker,
+  logoutFromBroker,
+  restoreBrokerSession,
   type BrokerConfig
 } from "./services/api";
 
 export default function App() {
   const [broker, setBroker] = useState<BrokerConfig | null>(null);
+  const [restoring, setRestoring] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+
+    void restoreBrokerSession()
+      .then((session) => {
+        if (active && session) setBroker(session);
+      })
+      .catch((error) => {
+        console.error("[Dashboard] Session restoration failed:", error);
+        disconnectBroker();
+      })
+      .finally(() => {
+        if (active) setRestoring(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const load = useCallback(() => getBasicHealth(), []);
   const q = usePolling(load, 10000);
 
-  function handleLogout() {
-    disconnectBroker();
-    setBroker(null);
+  async function handleLogout() {
+    try {
+      await logoutFromBroker();
+    } catch (error) {
+      console.error("[Dashboard] Logout request failed:", error);
+      disconnectBroker();
+    } finally {
+      setBroker(null);
+    }
+  }
+
+  async function handleConnected(config: BrokerConfig) {
+    // loginToBroker has already configured the API client and established
+    // either a browser session or a legacy cross-origin Basic connection.
+    await loginToBroker(config);
+    setBroker(config);
+  }
+
+  if (restoring) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <div className="login-brand">
+            <div className="login-logo">MX</div>
+            <div>
+              <h1>MessageX</h1>
+              <span>RESTORING SESSION</span>
+            </div>
+          </div>
+          <p>Checking your existing dashboard session...</p>
+        </div>
+      </div>
+    );
   }
 
   if (!broker) {
-    return (
-      <Login
-        onConnected={setBroker}
-      />
-    );
+    return <Login onConnected={handleConnected} />;
   }
 
   return (

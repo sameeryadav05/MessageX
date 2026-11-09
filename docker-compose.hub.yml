@@ -1,0 +1,126 @@
+name: messagex
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: messagex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: messagex
+    volumes:
+      - messagex_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U messagex -d messagex"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  broker:
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-broker:${MESSAGEX_VERSION:-0.1.0}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      HTTP_PORT: 3000
+      TCP_PORT: 5678
+      DATABASE_URL: postgresql://messagex:${POSTGRES_PASSWORD}@postgres:5432/messagex
+      ACK_TIMEOUT_SECONDS: ${ACK_TIMEOUT_SECONDS:-30}
+      ACK_TIMEOUT_CHECK_INTERVAL_MS: ${ACK_TIMEOUT_CHECK_INTERVAL_MS:-5000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "3000"
+      - "5678"
+    ports:
+      - "${TCP_BIND_ADDRESS:-127.0.0.1}:5678:5678"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3000/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - internal
+
+  dashboard:
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-dashboard:${MESSAGEX_VERSION:-0.1.0}
+    restart: unless-stopped
+    environment:
+      VIRTUAL_HOST: ${MESSAGEX_DOMAIN:?Set MESSAGEX_DOMAIN}
+      VIRTUAL_PORT: 80
+      LETSENCRYPT_HOST: ${MESSAGEX_DOMAIN}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:?Set LETSENCRYPT_EMAIL}
+    depends_on:
+      broker:
+        condition: service_healthy
+    expose:
+      - "80"
+    networks:
+      - internal
+      - public
+
+  admin-init:
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-broker:${MESSAGEX_VERSION:-0.1.0}
+    restart: "no"
+    command: ["node", "apps/broker/scripts/bootstrap-admin.mjs"]
+    environment:
+      DATABASE_URL: postgresql://messagex:${POSTGRES_PASSWORD}@postgres:5432/messagex
+      MESSAGEX_ADMIN_USERNAME: ${MESSAGEX_ADMIN_USERNAME:?Set MESSAGEX_ADMIN_USERNAME}
+      MESSAGEX_ADMIN_PASSWORD: ${MESSAGEX_ADMIN_PASSWORD:?Set MESSAGEX_ADMIN_PASSWORD}
+    depends_on:
+      broker:
+        condition: service_healthy
+    networks:
+      - internal
+
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy:1.9
+    container_name: messagex-edge
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - nginx_certs:/etc/nginx/certs:ro
+      - nginx_vhost:/etc/nginx/vhost.d
+      - nginx_html:/usr/share/nginx/html
+    networks:
+      - public
+
+  acme-companion:
+    image: nginxproxy/acme-companion:2.6
+    restart: unless-stopped
+    environment:
+      NGINX_PROXY_CONTAINER: messagex-edge
+      DEFAULT_EMAIL: ${LETSENCRYPT_EMAIL:?Set LETSENCRYPT_EMAIL}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - nginx_certs:/etc/nginx/certs:rw
+      - nginx_vhost:/etc/nginx/vhost.d
+      - nginx_html:/usr/share/nginx/html
+      - acme_data:/etc/acme.sh
+    depends_on:
+      - nginx-proxy
+    networks:
+      - public
+
+networks:
+  internal:
+    internal: true
+  public:
+
+volumes:
+  messagex_postgres_data:
+  nginx_certs:
+  nginx_vhost:
+  nginx_html:
+  acme_data:

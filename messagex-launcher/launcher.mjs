@@ -156,11 +156,28 @@ async function ensureVolume() {
 async function getCredentials() {
   await mkdir(DATA_DIR, { recursive: true });
 
+  const suppliedUsername = process.env.MESSAGEX_ADMIN_USERNAME?.trim();
+  const suppliedPassword = process.env.MESSAGEX_ADMIN_PASSWORD;
+  const hasUsername = Boolean(suppliedUsername);
+  const hasPassword = typeof suppliedPassword === "string" && suppliedPassword.length > 0;
+
+  if (hasUsername !== hasPassword) {
+    throw new Error(
+      "Set both MESSAGEX_ADMIN_USERNAME and MESSAGEX_ADMIN_PASSWORD, or set neither."
+    );
+  }
+
+  if (hasPassword && suppliedPassword.length < 12) {
+    throw new Error(
+      "MESSAGEX_ADMIN_PASSWORD must contain at least 12 characters."
+    );
+  }
+
   try {
     const content = await readFile(CREDENTIALS_FILE, "utf8");
 
     const values = Object.fromEntries(
-      content.trim().split("\n").map((line) => {
+      content.trim().split("\\n").map((line) => {
         const index = line.indexOf("=");
 
         return [
@@ -174,22 +191,41 @@ async function getCredentials() {
       throw new Error("Invalid credentials file");
     }
 
+    if (
+      hasUsername &&
+      (
+        values.username !== suppliedUsername ||
+        values.password !== suppliedPassword
+      )
+    ) {
+      throw new Error(
+        "Admin credentials are already initialized in /data. Environment variables only configure the first startup; they do not change an existing admin password."
+      );
+    }
+
     return {
-      ...values,
-      newlyGenerated: false
+      username: values.username,
+      password: values.password,
+      newlyGenerated: false,
+      suppliedByUser: hasUsername
     };
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
 
-  const credentials = {
-    username: "admin",
-    password: randomBytes(32).toString("base64url")
-  };
+  const credentials = hasUsername
+    ? {
+        username: suppliedUsername,
+        password: suppliedPassword
+      }
+    : {
+        username: "admin",
+        password: randomBytes(32).toString("base64url")
+      };
 
   await writeFile(
     CREDENTIALS_FILE,
-    `username=${credentials.username}\npassword=${credentials.password}\n`,
+    `username=${credentials.username}\\npassword=${credentials.password}\\n`,
     {
       flag: "wx",
       mode: 0o600
@@ -200,7 +236,8 @@ async function getCredentials() {
 
   return {
     ...credentials,
-    newlyGenerated: true
+    newlyGenerated: !hasUsername,
+    suppliedByUser: hasUsername
   };
 }
 

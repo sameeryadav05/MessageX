@@ -38,9 +38,18 @@ export function configureBroker(config: BrokerConfig): void {
 
   // Local development uses the Vite proxy.
   // Remote brokers are accessed directly.
-  api.defaults.baseURL = isDefaultLocal
-    ? ""
-    : `http://${hostname}:${config.port}`;
+const isSameOrigin =
+  hostname === window.location.hostname &&
+  (
+    (window.location.protocol === "https:" &&
+      config.port === "443") ||
+    (window.location.protocol === "http:" &&
+      config.port === window.location.port)
+  );
+
+api.defaults.baseURL = isSameOrigin
+  ? ""
+  : `${window.location.protocol}//${hostname}:${config.port}`;
 
   api.defaults.headers.common.Authorization =
     `Basic ${btoa(`${config.username}:${config.password}`)}`;

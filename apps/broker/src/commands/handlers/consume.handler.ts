@@ -57,6 +57,23 @@ export const handleConsume: CommandHandlerFunction = async ({
       };
     }
 
+    // Exclusive queues can only be consumed by their owner connection.
+    if (
+      queue.exclusive &&
+      queue.owner_connection_id !== connection.id
+    ) {
+      return {
+        version: PROTOCOL_VERSION,
+        type: "RESPONSE",
+        requestId: command.requestId,
+        success: false,
+        error: {
+          code: "ERR_EXCLUSIVE_QUEUE_ACCESS",
+          message: "Only the declaring connection can consume from this exclusive queue"
+        }
+      };
+    }
+
     const consumerTag = consumerManager.subscribe(
       connection,
       normalizedQueueName

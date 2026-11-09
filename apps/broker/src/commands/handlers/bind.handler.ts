@@ -1,7 +1,7 @@
 
 import { PROTOCOL_VERSION } from "../../protocol/protocol.constants.js";
 import { bindQueueToExchange } from "../../bindings/binding.repository.js";
-
+import { getQueueByName } from "../../queues/queue.repository.js";
 import type { CommandHandlerFunction } from "../command.types.js";
 
 export const handleBind: CommandHandlerFunction = async ({
@@ -134,9 +134,29 @@ export const handleBind: CommandHandlerFunction = async ({
   }
 
   try {
+    const normalizedQueueName = queueName.trim();
+    const queue = await getQueueByName(normalizedQueueName);
+
+    // Only the owner can create bindings for an exclusive queue.
+    if (
+      queue?.exclusive &&
+      queue.owner_connection_id !== connection.id
+    ) {
+      return {
+        version: PROTOCOL_VERSION,
+        type: "RESPONSE",
+        requestId: command.requestId,
+        success: false,
+        error: {
+          code: "ERR_EXCLUSIVE_QUEUE_ACCESS",
+          message: "Only the declaring connection can bind an exclusive queue"
+        }
+      };
+    }
+
     const binding = await bindQueueToExchange({
       exchangeName: exchangeName.trim(),
-      queueName: queueName.trim(),
+      queueName: normalizedQueueName,
       routingKey: (routingKey as string | undefined) ?? "",
       arguments: normalizedArguments
     });

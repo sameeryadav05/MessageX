@@ -1,55 +1,111 @@
-interface MetricEvent {
-  type:
-    | "published"
-    | "delivered"
-    | "acknowledged"
-    | "rejected"
-    | "requeued"
-    | "deadLettered"
-    | "recovered";
-  timestamp: number;
+type MetricType =
+  | "published"
+  | "delivered"
+  | "acknowledged"
+  | "rejected"
+  | "requeued"
+  | "deadLettered"
+  | "recovered";
+
+type MetricCounts = Record<MetricType, number>;
+
+interface MetricBucket {
+  second: number;
+  counts: MetricCounts;
 }
 
-const counters = {
-  published: 0,
-  routedMessageCopies: 0,
-  delivered: 0,
-  acknowledged: 0,
-  rejected: 0,
-  requeued: 0,
-  deadLettered: 0,
-  recovered: 0
+function createEmptyCounts(): MetricCounts {
+  return {
+    published: 0,
+    delivered: 0,
+    acknowledged: 0,
+    rejected: 0,
+    requeued: 0,
+    deadLettered: 0,
+    recovered: 0
+  };
+}
+
+const totals: MetricCounts & {
+  routedMessageCopies: number;
+} = {
+  ...createEmptyCounts(),
+  routedMessageCopies: 0
 };
 
-const events: MetricEvent[] = [];
+// Fixed-size rolling window: one bucket per second.
+const buckets: Array<MetricBucket | undefined> =
+  new Array(60);
+
+function getCurrentBucket(): MetricBucket {
+  const second = Math.floor(Date.now() / 1000);
+  const index = second % 60;
+
+  let bucket = buckets[index];
+
+  if (!bucket || bucket.second !== second) {
+    bucket = {
+      second,
+      counts: createEmptyCounts()
+    };
+
+    buckets[index] = bucket;
+  }
+
+  return bucket;
+}
 
 function record(
-  type: MetricEvent["type"],
+  type: MetricType,
   count = 1
 ): void {
-  if (count <= 0) return;
-
-  const now = Date.now();
-
-  counters[type] += count;
-
-  for (let i = 0; i < count; i++) {
-    events.push({ type, timestamp: now });
+  if (!Number.isFinite(count) || count <= 0) {
+    return;
   }
 
-  // Keep only the most recent 60 seconds.
-  const cutoff = now - 60_000;
+  const normalizedCount = Math.floor(count);
 
-  while (events.length > 0 && events[0].timestamp < cutoff) {
-    events.shift();
+  if (normalizedCount <= 0) {
+    return;
   }
+
+  totals[type] += normalizedCount;
+
+  const bucket = getCurrentBucket();
+  bucket.counts[type] += normalizedCount;
+}
+
+function getLastMinuteCounts(): MetricCounts {
+  const currentSecond = Math.floor(Date.now() / 1000);
+  const result = createEmptyCounts();
+
+  for (const bucket of buckets) {
+    if (!bucket) {
+      continue;
+    }
+
+    const age = currentSecond - bucket.second;
+
+    if (age < 0 || age >= 60) {
+      continue;
+    }
+
+    for (const type of Object.keys(result) as MetricType[]) {
+      result[type] += bucket.counts[type];
+    }
+  }
+
+  return result;
 }
 
 export const brokerMetrics = {
-    recordPublished(routedQueues: number): void {
+  recordPublished(routedQueues: number): void {
     record("published");
-    counters.routedMessageCopies += routedQueues;
-    },
+
+    if (Number.isFinite(routedQueues) && routedQueues > 0) {
+      totals.routedMessageCopies += Math.floor(routedQueues);
+    }
+  },
 
   recordDelivered(): void {
     record("delivered");
@@ -76,35 +132,24 @@ export const brokerMetrics = {
   },
 
   getSnapshot() {
-    const cutoff = Date.now() - 60_000;
-
-    while (events.length > 0 && events[0].timestamp < cutoff) {
-      events.shift();
-    }
-
-    const countLastMinute = (type: MetricEvent["type"]) =>
-      events.filter((event) => event.type === type).length;
+    const lastMinute = getLastMinuteCounts();
 
     return {
-      totals: { ...counters },
-      lastMinute: {
-        published: countLastMinute("published"),
-        delivered: countLastMinute("delivered"),
-        acknowledged: countLastMinute("acknowledged"),
-        rejected: countLastMinute("rejected"),
-        requeued: countLastMinute("requeued"),
-        deadLettered: countLastMinute("deadLettered"),
-        recovered: countLastMinute("recovered")
-      },
+      totals: { ...totals },
+
+      lastMinute,
+
       ratesPerSecond: {
         published: Number(
-          (countLastMinute("published") / 60).toFixed(2)
+          (lastMinute.published / 60).toFixed(2)
         ),
+
         delivered: Number(
-          (countLastMinute("delivered") / 60).toFixed(2)
+          (lastMinute.delivered / 60).toFixed(2)
         ),
+
         acknowledged: Number(
-          (countLastMinute("acknowledged") / 60).toFixed(2)
+          (lastMinute.acknowledged / 60).toFixed(2)
         )
       }
     };

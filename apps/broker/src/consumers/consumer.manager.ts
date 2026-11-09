@@ -509,15 +509,25 @@ export class ConsumerManager {
           true
         );
 
-        if (result.released) {
-          if (result.sourceQueueName) {
-            affectedQueues.add(result.sourceQueueName);
-          }
+if (result.released) {
+  // Record successful recovery after a consumer disconnect.
+  brokerMetrics.recordRecovered();
 
-          if (result.destinationQueueName) {
-            affectedQueues.add(result.destinationQueueName);
-          }
-        }
+  if (result.deadLettered) {
+    brokerMetrics.recordDeadLettered();
+  } else if (result.destinationQueueName) {
+    brokerMetrics.recordRequeued();
+  }
+
+  if (result.sourceQueueName) {
+    affectedQueues.add(result.sourceQueueName);
+  }
+
+  if (result.destinationQueueName) {
+    affectedQueues.add(result.destinationQueueName);
+  }
+}
+
       } catch (error) {
         console.error(
           `[Consumer] Failed to recover delivery '${delivery.deliveryTag}' after disconnect:`,

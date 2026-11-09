@@ -1,10 +1,12 @@
+
 {
   "name": "messagex",
   "version": "1.0.0",
-  "private": "true",
+  "private": true,
   "description": "A self-hosted message broker",
   "workspaces": [
-    "apps/broker"
+    "apps/broker",
+    "apps/dashboard"
   ],
   "scripts": {
     "dev:broker": "npm run dev --workspace=@messagex/broker",

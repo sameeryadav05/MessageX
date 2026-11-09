@@ -24,14 +24,30 @@ const DASHBOARD_IMAGE =
 
 const OWNER_LABEL = "com.imsameer.messagex.launcher";
 const OWNER_VALUE = "true";
+const INSTANCE_LABEL = "com.imsameer.messagex.instance";
+const INSTANCE = (process.env.MESSAGEX_INSTANCE || "launcher").trim();
+
+if (!/^[a-z0-9][a-z0-9-]{0,30}$/.test(INSTANCE)) {
+  throw new Error(
+    "MESSAGEX_INSTANCE must be 1-31 lowercase letters, numbers, or hyphens, and must start with a letter or number."
+  );
+}
+
+const RESOURCE_PREFIX = INSTANCE === "launcher"
+  ? "messagex-launcher"
+  : `messagex-${INSTANCE}`;
 
 const RESOURCE_LABELS = {
-  [OWNER_LABEL]: OWNER_VALUE
+  [OWNER_LABEL]: OWNER_VALUE,
+  [INSTANCE_LABEL]: INSTANCE
 };
 
-// Dedicated resource names prevent collisions with the Compose deployment.
-const NETWORK = "messagex-launcher-private";
-const DATA_VOLUME = "messagex_launcher_postgres_data";
+// Each installation gets isolated resources. The default names preserve
+// compatibility with existing MessageX Launcher installations.
+const NETWORK = `${RESOURCE_PREFIX}-private`;
+const DATA_VOLUME = INSTANCE === "launcher"
+  ? "messagex_launcher_postgres_data"
+  : `${RESOURCE_PREFIX.replace(/-/g, "_")}_postgres_data`;
 
 const DASHBOARD_PORT =
   String(process.env.DASHBOARD_PORT || 15672);
@@ -46,10 +62,10 @@ const DATA_DIR = "/data";
 const CREDENTIALS_FILE = `${DATA_DIR}/credentials.txt`;
 
 const names = {
-  postgres: "messagex-launcher-postgres",
-  broker: "messagex-launcher-broker",
-  dashboard: "messagex-launcher-dashboard",
-  adminInit: "messagex-launcher-admin-init"
+  postgres: `${RESOURCE_PREFIX}-postgres`,
+  broker: `${RESOURCE_PREFIX}-broker`,
+  dashboard: `${RESOURCE_PREFIX}-dashboard`,
+  adminInit: `${RESOURCE_PREFIX}-admin-init`
 };
 
 const recreatedContainers = new Set();
@@ -177,7 +193,7 @@ async function getCredentials() {
     const content = await readFile(CREDENTIALS_FILE, "utf8");
 
     const values = Object.fromEntries(
-      content.trim().split("\\n").map((line) => {
+      content.trim().split("\n").map((line) => {
         const index = line.indexOf("=");
 
         return [
@@ -225,7 +241,7 @@ async function getCredentials() {
 
   await writeFile(
     CREDENTIALS_FILE,
-    `username=${credentials.username}\\npassword=${credentials.password}\\n`,
+    `username=${credentials.username}\npassword=${credentials.password}\n`,
     {
       flag: "wx",
       mode: 0o600
@@ -653,7 +669,7 @@ async function main() {
     log("Save this password securely.");
   } else {
     log("Existing admin credentials retained.");
-    log("Retrieve them using: docker exec messagex cat /data/credentials.txt");
+    log("Retrieve them using: docker exec <launcher-container-name> cat /data/credentials.txt");
   }
 
   log("PostgreSQL is not exposed publicly.");

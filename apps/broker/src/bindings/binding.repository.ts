@@ -1,9 +1,11 @@
+
 import { pool } from "../database/database.js";
 
 export interface BindingOptions {
   exchangeName: string;
   queueName: string;
   routingKey?: string;
+  arguments?: Record<string, unknown>;
 }
 
 export interface BindingRecord {
@@ -13,6 +15,7 @@ export interface BindingRecord {
   exchange_name: string;
   queue_name: string;
   routing_key: string;
+  arguments: Record<string, unknown>;
 }
 
 export async function bindQueueToExchange(
@@ -21,20 +24,38 @@ export async function bindQueueToExchange(
   const {
     exchangeName,
     queueName,
-    routingKey = ""
+    routingKey = "",
+    arguments: bindingArguments = {}
   } = options;
 
+  const serializedArguments = JSON.stringify(bindingArguments);
+
   const result = await pool.query<BindingRecord>(
-    `INSERT INTO bindings (exchange_id, queue_id, routing_key)
-     SELECT e.id, q.id, $3
+    `INSERT INTO bindings (
+       exchange_id,
+       queue_id,
+       routing_key,
+       arguments
+     )
+     SELECT e.id, q.id, $3, $4::jsonb
      FROM exchanges e
      CROSS JOIN queues q
      WHERE e.name = $1 AND q.name = $2
-     ON CONFLICT (exchange_id, queue_id, routing_key) DO NOTHING
-     RETURNING id, exchange_id, queue_id, routing_key,
-               $1::text AS exchange_name,
-               $2::text AS queue_name`,
-    [exchangeName, queueName, routingKey]
+     ON CONFLICT (
+       exchange_id,
+       queue_id,
+       routing_key,
+       arguments
+     ) DO NOTHING
+     RETURNING
+       id,
+       exchange_id,
+       queue_id,
+       routing_key,
+       arguments,
+       $1::text AS exchange_name,
+       $2::text AS queue_name`,
+    [exchangeName, queueName, routingKey, serializedArguments]
   );
 
   if (result.rows.length > 0) {
@@ -48,14 +69,16 @@ export async function bindQueueToExchange(
        b.queue_id,
        e.name AS exchange_name,
        q.name AS queue_name,
-       b.routing_key
+       b.routing_key,
+       b.arguments
      FROM bindings b
      INNER JOIN exchanges e ON e.id = b.exchange_id
      INNER JOIN queues q ON q.id = b.queue_id
      WHERE e.name = $1
        AND q.name = $2
-       AND b.routing_key = $3`,
-    [exchangeName, queueName, routingKey]
+       AND b.routing_key = $3
+       AND b.arguments = $4::jsonb`,
+    [exchangeName, queueName, routingKey, serializedArguments]
   );
 
   const existing = existingResult.rows[0];
@@ -77,7 +100,8 @@ export async function getAllBindings(): Promise<BindingRecord[]> {
        b.queue_id,
        e.name AS exchange_name,
        q.name AS queue_name,
-       b.routing_key
+       b.routing_key,
+       b.arguments
      FROM bindings b
      INNER JOIN exchanges e ON e.id = b.exchange_id
      INNER JOIN queues q ON q.id = b.queue_id

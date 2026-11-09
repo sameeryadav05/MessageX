@@ -1,6 +1,7 @@
 
 import { randomUUID } from "node:crypto";
 import { pool } from "../database/database.js";
+import { routeMessage } from "../routing/routing.js";
 
 // -----------------------------------------------------------------------------
 // Types
@@ -98,28 +99,51 @@ export async function publishMessage(
       throw new Error(`Exchange '${exchangeName}' does not exist`);
     }
 
-    if (exchange.type !== "direct" && exchange.type !== "fanout") {
+    const supportedExchangeTypes = [
+      "direct",
+      "fanout",
+      "topic",
+      "headers"
+    ] as const;
+
+    if (
+      !supportedExchangeTypes.includes(
+        exchange.type as (typeof supportedExchangeTypes)[number]
+      )
+    ) {
       throw new Error(
-        `Publishing to '${exchange.type}' exchanges is not supported yet`
+        `Unsupported exchange type '${exchange.type}'`
       );
     }
 
-    const bindingsResult =
-      exchange.type === "direct"
-        ? await client.query<{ queue_id: string }>(
-            `SELECT DISTINCT queue_id
-             FROM bindings
-             WHERE exchange_id = $1 AND routing_key = $2`,
-            [exchange.id, routingKey]
-          )
-        : await client.query<{ queue_id: string }>(
-            `SELECT DISTINCT queue_id
-             FROM bindings
-             WHERE exchange_id = $1`,
-            [exchange.id]
-          );
+    const bindingsResult = await client.query<{
+      queue_id: string;
+      routing_key: string;
+      arguments: Record<string, unknown> | null;
+    }>(
+      `SELECT
+         queue_id,
+         routing_key,
+         arguments
+       FROM bindings
+       WHERE exchange_id = $1`,
+      [exchange.id]
+    );
 
-    const queueIds = bindingsResult.rows.map((row) => row.queue_id);
+    const queueIds = routeMessage({
+      exchangeType: exchange.type as
+        | "direct"
+        | "fanout"
+        | "topic"
+        | "headers",
+      routingKey,
+      headers,
+      bindings: bindingsResult.rows.map((binding) => ({
+        queueId: binding.queue_id,
+        routingKey: binding.routing_key,
+        arguments: binding.arguments ?? {}
+      }))
+    });
 
     for (const queueId of queueIds) {
       await client.query(

@@ -1,3 +1,4 @@
+
 import { PROTOCOL_VERSION } from "../../protocol/protocol.constants.js";
 import { bindQueueToExchange } from "../../bindings/binding.repository.js";
 
@@ -20,7 +21,12 @@ export const handleBind: CommandHandlerFunction = async ({
     };
   }
 
-  const { exchangeName, queueName, routingKey } = command.payload;
+  const {
+    exchangeName,
+    queueName,
+    routingKey,
+    arguments: bindingArguments
+  } = command.payload;
 
   if (
     typeof exchangeName !== "string" ||
@@ -72,11 +78,67 @@ export const handleBind: CommandHandlerFunction = async ({
     };
   }
 
+  if (
+    bindingArguments !== undefined &&
+    (
+      typeof bindingArguments !== "object" ||
+      bindingArguments === null ||
+      Array.isArray(bindingArguments)
+    )
+  ) {
+    return {
+      version: PROTOCOL_VERSION,
+      type: "RESPONSE",
+      requestId: command.requestId,
+      success: false,
+      error: {
+        code: "ERR_INVALID_BINDING_ARGUMENTS",
+        message: "arguments must be an object"
+      }
+    };
+  }
+
+  const normalizedArguments =
+    (bindingArguments as Record<string, unknown> | undefined) ?? {};
+
+  if (Object.keys(normalizedArguments).length > 32) {
+    return {
+      version: PROTOCOL_VERSION,
+      type: "RESPONSE",
+      requestId: command.requestId,
+      success: false,
+      error: {
+        code: "ERR_INVALID_BINDING_ARGUMENTS",
+        message: "A binding can contain at most 32 arguments"
+      }
+    };
+  }
+
+  const matchMode = normalizedArguments["x-match"];
+
+  if (
+    matchMode !== undefined &&
+    matchMode !== "all" &&
+    matchMode !== "any"
+  ) {
+    return {
+      version: PROTOCOL_VERSION,
+      type: "RESPONSE",
+      requestId: command.requestId,
+      success: false,
+      error: {
+        code: "ERR_INVALID_BINDING_ARGUMENTS",
+        message: "x-match must be either 'all' or 'any'"
+      }
+    };
+  }
+
   try {
     const binding = await bindQueueToExchange({
       exchangeName: exchangeName.trim(),
       queueName: queueName.trim(),
-      routingKey: (routingKey as string | undefined) ?? ""
+      routingKey: (routingKey as string | undefined) ?? "",
+      arguments: normalizedArguments
     });
 
     return {
@@ -89,7 +151,8 @@ export const handleBind: CommandHandlerFunction = async ({
           id: binding.id,
           exchangeName: binding.exchange_name,
           queueName: binding.queue_name,
-          routingKey: binding.routing_key
+          routingKey: binding.routing_key,
+          arguments: binding.arguments
         }
       }
     };

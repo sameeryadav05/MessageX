@@ -1,16 +1,22 @@
 
 import type { RequestHandler } from "express";
+
 import {
   getBrokerUserByUsername
 } from "./auth.repository.js";
-import { verifyPassword } from "./password.js";
+
+import {
+  verifyPassword
+} from "./password.js";
 
 const MAX_AUTH_HEADER_LENGTH = 2048;
 
 function rejectAuthentication(
   res: Parameters<RequestHandler>[1]
 ): void {
-  res.setHeader("WWW-Authenticate", 'Basic realm="MessageX"');
+  // Do not send WWW-Authenticate.
+  // React handles authentication through its own login page.
+  // Sending a Basic challenge causes browsers to show a native popup.
 
   res.status(401).json({
     success: false,
@@ -40,7 +46,6 @@ export const requireManagementAuth: RequestHandler = async (
   try {
     const encoded = header.slice(6);
 
-    // Reject malformed Base64 instead of accepting partial decoding.
     if (
       !encoded ||
       !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) ||

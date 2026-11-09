@@ -1,10 +1,12 @@
 import { Router } from "express";
+import type { Request, Response } from "express";
 import { getBrokerUserByUsername } from "./auth.repository.js";
 import { verifyPassword } from "./password.js";
 import {
   createManagementSession,
   getManagementSessionUser,
-  revokeManagementSession
+  revokeManagementSession,
+  deleteExpiredManagementSessions
 } from "./session.repository.js";
 import {
   createSessionToken,
@@ -18,7 +20,7 @@ import {
 const router = Router();
 const COOKIE_PATH = "/";
 
-function isSameOrigin(req: Parameters<typeof router.post>[1] extends never ? never : any): boolean {
+function isSameOrigin(req: Request): boolean {
   const origin = req.get("origin");
   const host = req.get("host");
   if (!origin || !host) return false;
@@ -29,7 +31,7 @@ function isSameOrigin(req: Parameters<typeof router.post>[1] extends never ? nev
   }
 }
 
-function setSessionCookie(req: any, res: any, token: string): void {
+function setSessionCookie(req: Request, res: Response, token: string): void {
   const secure = isSecureRequest(req.get("x-forwarded-proto"), Boolean(req.secure));
   res.cookie(MANAGEMENT_SESSION_COOKIE, token, {
     httpOnly: true,
@@ -40,7 +42,7 @@ function setSessionCookie(req: any, res: any, token: string): void {
   });
 }
 
-function clearSessionCookie(req: any, res: any): void {
+function clearSessionCookie(req: Request, res: Response): void {
   const secure = isSecureRequest(req.get("x-forwarded-proto"), Boolean(req.secure));
   res.clearCookie(MANAGEMENT_SESSION_COOKIE, {
     httpOnly: true,
@@ -70,6 +72,7 @@ router.post("/login", async (req, res) => {
       return;
     }
 
+    await deleteExpiredManagementSessions();
     const token = createSessionToken();
     const tokenHash = hashSessionToken(token);
     const expiresAt = new Date(Date.now() + MANAGEMENT_SESSION_TTL_MS);

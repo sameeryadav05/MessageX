@@ -18,6 +18,7 @@ import { brokerMetrics } from "../monitoring/metrics.js";
 import {
   requireManagementAuth
 } from "../auth/http-auth.middleware.js";
+import managementAuthRoutes from "../auth/session.routes.js";
 
 
 let activeConnectionManager: ConnectionManager | null = null;
@@ -66,7 +67,10 @@ function bytesToMB(bytes: number): number {
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-// Require authentication for every management API endpoint.
+// Browser session endpoints perform their own authentication.
+app.use("/api/auth", managementAuthRoutes);
+
+// Require authentication for all remaining management API endpoints.
 app.use("/api", requireManagementAuth);
 
 

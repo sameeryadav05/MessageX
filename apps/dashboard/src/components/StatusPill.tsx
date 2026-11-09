@@ -1,0 +1,1 @@
+export default function StatusPill({status}:{status?:string|boolean}){const ok=status===true||["healthy","connected","online"].includes(String(status).toLowerCase());return <span className={`pill ${ok?"ok":"warn"}`}><i/>{ok?"Healthy":status||"Unknown"}</span>}

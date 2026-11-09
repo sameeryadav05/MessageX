@@ -19,8 +19,16 @@ interface LoginProps {
 }
 
 export default function Login({ onConnected }: LoginProps) {
-  const [hostname, setHostname] = useState("127.0.0.1");
-  const [port, setPort] = useState("3000");
+  const isLocalDashboard =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
+
+  const [hostname, setHostname] = useState(
+    isLocalDashboard ? "127.0.0.1" : window.location.hostname
+  );
+  const [port, setPort] = useState(
+    isLocalDashboard ? "3000" : window.location.protocol === "https:" ? "443" : (window.location.port || "80")
+  );
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
 

@@ -17,17 +17,20 @@ async function startMessageX(): Promise<void> {
   await connectDatabase();
   await runMigrations();
 
-  const HTTP_PORT = Number(process.env.HTTP_PORT) || 3000;
-  const TCP_PORT = Number(process.env.TCP_PORT) || 5678;
+const HOST = process.env.HOST || "127.0.0.1";
+
+const HTTP_PORT = Number(process.env.HTTP_PORT) || 3000;
+const TCP_PORT = Number(process.env.TCP_PORT) || 5678;
 
 const tcpServer = new TcpServer();
 
 const httpServer = startHttpServer(
   HTTP_PORT,
-  tcpServer.connectionManager
+  tcpServer.connectionManager,
+  HOST
 );
 
-  tcpServer.start(TCP_PORT);
+tcpServer.start(TCP_PORT, HOST);
 
   const ACK_TIMEOUT_SECONDS = Number(
   process.env.ACK_TIMEOUT_SECONDS ?? 30

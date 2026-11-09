@@ -594,13 +594,14 @@ app.get("/health/ready", async (_req, res) => {
 
 export function startHttpServer(
   port: number,
-  connectionManager: ConnectionManager
+  connectionManager: ConnectionManager,
+  host: string = "127.0.0.1"
 ): Server {
   activeConnectionManager = connectionManager;
 
-  const server = app.listen(port, "127.0.0.1", () => {
+  const server = app.listen(port, host, () => {
     console.log(
-      `[HTTP Server] Management API listening on http://127.0.0.1:${port}`
+      `[HTTP Server] Management API listening on ${host}:${port}`
     );
   });
 

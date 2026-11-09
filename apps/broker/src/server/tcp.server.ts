@@ -87,23 +87,29 @@ export class TcpServer {
   /**
    * Starts the TCP broker server.
    */
-  start(port: number): void {
-    if (this.started) {
-      throw new Error("TCP server has already been started");
-    }
-
-    if (this.closing) {
-      throw new Error("Cannot start a TCP server that is closing");
-    }
-
-    this.started = true;
-
-    this.server.listen(port, "127.0.0.1", () => {
-      console.log(
-        `[TCP] MessageX Broker listening on 127.0.0.1:${port}`
-      );
-    });
+ /**
+ * Starts the TCP broker server.
+ */
+start(
+  port: number,
+  host: string = "127.0.0.1"
+): void {
+  if (this.started) {
+    throw new Error("TCP server has already been started");
   }
+
+  if (this.closing) {
+    throw new Error("Cannot start a TCP server that is closing");
+  }
+
+  this.started = true;
+
+  this.server.listen(port, host, () => {
+    console.log(
+      `[TCP] MessageX Broker listening on ${host}:${port}`
+    );
+  });
+}
 
   /**
    * Tracks asynchronous cleanup after a client disconnects.

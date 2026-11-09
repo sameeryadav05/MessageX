@@ -156,20 +156,20 @@ async function ensureVolume() {
 async function getCredentials() {
   await mkdir(DATA_DIR, { recursive: true });
 
-  const suppliedUsername = process.env.MESSAGEX_ADMIN_USERNAME?.trim();
-  const suppliedPassword = process.env.MESSAGEX_ADMIN_PASSWORD;
+  const suppliedUsername = process.env.MESSAGEX_DEFAULT_USER?.trim();
+  const suppliedPassword = process.env.MESSAGEX_DEFAULT_PASS;
   const hasUsername = Boolean(suppliedUsername);
   const hasPassword = typeof suppliedPassword === "string" && suppliedPassword.length > 0;
 
   if (hasUsername !== hasPassword) {
     throw new Error(
-      "Set both MESSAGEX_ADMIN_USERNAME and MESSAGEX_ADMIN_PASSWORD, or set neither."
+      "Set both MESSAGEX_DEFAULT_USER and MESSAGEX_DEFAULT_PASS, or set neither."
     );
   }
 
   if (hasPassword && suppliedPassword.length < 12) {
     throw new Error(
-      "MESSAGEX_ADMIN_PASSWORD must contain at least 12 characters."
+      "MESSAGEX_DEFAULT_PASS must contain at least 12 characters."
     );
   }
 
@@ -422,8 +422,8 @@ async function initializeAdmin(credentials, databasePassword) {
 
     Env: [
       `DATABASE_URL=postgresql://messagex:${databasePassword}@postgres:5432/messagex`,
-      `MESSAGEX_ADMIN_USERNAME=${credentials.username}`,
-      `MESSAGEX_ADMIN_PASSWORD=${credentials.password}`
+      `MESSAGEX_DEFAULT_USER=${credentials.username}`,
+      `MESSAGEX_DEFAULT_PASS=${credentials.password}`
     ],
 
     HostConfig: {

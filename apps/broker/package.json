@@ -10,7 +10,7 @@
     "start": "node dist/server/index.js",
     "typecheck": "tsc --noEmit",
     "user:create": "tsx scripts/create-user.ts",
-"test": "tsx --test tests/frame.test.ts tests/protocol.test.ts tests/command-handler.test.ts tests/auth-handler.test.ts tests/queue-handler.test.ts tests/message.repository.test.ts tests/routing.test.ts"
+"test": "tsx --test tests/frame.test.ts tests/protocol.test.ts tests/command-handler.test.ts tests/auth-handler.test.ts tests/queue-handler.test.ts tests/message.repository.test.ts tests/routing.test.ts tests/queue-lifecycle.test.ts"
   },
   "type": "module",
   "devDependencies": {

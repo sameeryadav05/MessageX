@@ -26,7 +26,7 @@ export interface BrokerConfig {
   password: string;
 }
 
-export function configureBroker(config: BrokerConfig): void {
+export function configureBroker(config: BrokerConfig): boolean {
   const hostname = config.hostname.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
   const isLocal =
@@ -51,13 +51,76 @@ api.defaults.baseURL = isSameOrigin
   ? ""
   : `${window.location.protocol}//${hostname}:${config.port}`;
 
-  api.defaults.headers.common.Authorization =
-    `Basic ${btoa(`${config.username}:${config.password}`)}`;
+  api.defaults.withCredentials = isSameOrigin;
+
+  if (isSameOrigin) {
+    delete api.defaults.headers.common.Authorization;
+  } else {
+    api.defaults.headers.common.Authorization =
+      `Basic ${btoa(`${config.username}:${config.password}`)}`;
+  }
+
+  return isSameOrigin;
 }
 
 export function disconnectBroker(): void {
   delete api.defaults.headers.common.Authorization;
   api.defaults.baseURL = "";
+  api.defaults.withCredentials = false;
+}
+
+export async function loginToBroker(config: BrokerConfig): Promise<void> {
+  const sameOrigin = configureBroker(config);
+
+  if (sameOrigin) {
+    await api.post("/api/auth/login", {
+      username: config.username,
+      password: config.password
+    }, { withCredentials: true });
+    return;
+  }
+
+  // Preserve Basic Authentication for brokers hosted on a different origin.
+  try {
+    await api.get("/api/overview");
+  } catch (error) {
+    disconnectBroker();
+    throw error;
+  }
+}
+
+export async function restoreBrokerSession(): Promise<BrokerConfig | null> {
+  api.defaults.baseURL = "";
+  api.defaults.withCredentials = true;
+  delete api.defaults.headers.common.Authorization;
+
+  try {
+    const response = await api.get("/api/auth/session", {
+      withCredentials: true
+    });
+
+    const port = window.location.protocol === "https:"
+      ? "443"
+      : (window.location.port || "80");
+
+    return {
+      hostname: window.location.hostname,
+      port,
+      username: response.data.user.username,
+      password: ""
+    };
+  } catch (error: any) {
+    if (error?.response?.status === 401) return null;
+    throw error;
+  }
+}
+
+export async function logoutFromBroker(): Promise<void> {
+  try {
+    await api.post("/api/auth/logout", {}, { withCredentials: true });
+  } finally {
+    disconnectBroker();
+  }
 }
 
 export async function connectToBroker(

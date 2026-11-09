@@ -270,19 +270,26 @@ async function ensureRunning(name, config) {
 
     const expectedImage = await docker.getImage(config.Image).inspect();
     const imageMatches = existing.info.Image === expectedImage.Id;
+    const networkAttached = Boolean(
+      existing.info.NetworkSettings?.Networks?.[NETWORK]
+    );
+    const unhealthyState =
+      !existing.info.State.Running ||
+      existing.info.State.Restarting ||
+      ["restarting", "exited", "dead"].includes(existing.info.State.Status);
 
-    if (!imageMatches) {
-      log(`Replacing outdated launcher-owned container: ${name}`);
+    if (!imageMatches || !networkAttached || unhealthyState) {
+      const reason = !imageMatches
+        ? "outdated image"
+        : !networkAttached
+          ? "missing private network attachment"
+          : "unhealthy container state";
+
+      log(`Replacing launcher-owned container ${name}: ${reason}`);
       await removeOwnedContainer(name, existing);
       recreatedContainers.add(name);
     } else {
-      if (!existing.info.State.Running) {
-        await existing.container.start();
-        log(`Started existing container: ${name}`);
-      } else {
-        log(`Already running: ${name}`);
-      }
-
+      log(`Already running with expected network: ${name}`);
       return existing.container;
     }
   }

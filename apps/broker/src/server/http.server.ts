@@ -7,7 +7,10 @@ import {
   getQueueByName
 } from "../queues/queue.repository.js";
 import { getAllBindings } from "../bindings/binding.repository.js";
-import { pool } from "../database/database.js";
+import {
+  pool,
+  DATABASE_POOL_MAX
+} from "../database/database.js";
 import type { ConnectionManager } from "../connection/connection-manager.js";
 import os from "node:os";
 import { monitorEventLoopDelay } from "node:perf_hooks";
@@ -475,7 +478,14 @@ app.get("/api/health/detailed", async (_req, res) => {
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.floor(process.uptime()),
       database: {
-        status: databaseStatus
+        status: databaseStatus,
+        pool: {
+          totalConnections: pool.totalCount,
+          idleConnections: pool.idleCount,
+          activeConnections: pool.totalCount - pool.idleCount,
+          waitingRequests: pool.waitingCount,
+          maxConnections: DATABASE_POOL_MAX
+        }
       },
       connections: {
         active: activeConnectionManager?.count ?? 0
@@ -524,6 +534,53 @@ app.get("/api/metrics", (_req, res) => {
     timestamp: new Date().toISOString(),
     metrics: brokerMetrics.getSnapshot()
   });
+});
+
+// PostgreSQL connection pool statistics.
+app.get("/api/database/pool", (_req, res) => {
+  res.status(200).json({
+    success: true,
+    database: "PostgreSQL",
+    pool: {
+      totalConnections: pool.totalCount,
+      idleConnections: pool.idleCount,
+      waitingRequests: pool.waitingCount,
+      maxConnections: DATABASE_POOL_MAX,
+      activeConnections: pool.totalCount - pool.idleCount
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Readiness check: verifies that the broker can reach PostgreSQL.
+app.get("/health/ready", async (_req, res) => {
+  const checks = {
+    database: "healthy" as "healthy" | "unhealthy"
+  };
+
+  try {
+    await pool.query("SELECT 1");
+
+    res.status(200).json({
+      success: true,
+      status: "ready",
+      service: "MessageX Broker",
+      checks,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    checks.database = "unhealthy";
+
+    console.error("[Health] Readiness check failed:", error);
+
+    res.status(503).json({
+      success: false,
+      status: "not_ready",
+      service: "MessageX Broker",
+      checks,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 export function startHttpServer(

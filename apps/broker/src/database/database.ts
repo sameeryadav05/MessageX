@@ -17,10 +17,14 @@ if (!connectionString) {
   throw new Error("DATABASE_URL environment variable is missing");
 }
 
+
+// PostgreSQL connection pool configuration.
+export const DATABASE_POOL_MAX = 10;
+
 // Create a reusable PostgreSQL connection pool.
 export const pool = new Pool({
   connectionString,
-  max: 10,
+  max: DATABASE_POOL_MAX,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000
 });

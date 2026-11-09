@@ -7,8 +7,11 @@ import {
   getQueueByName
 } from "../queues/queue.repository.js";
 import { getAllBindings } from "../bindings/binding.repository.js";
+import { pool } from "../database/database.js";
+import type { ConnectionManager } from "../connection/connection-manager.js";
 
 const app = express();
+let activeConnectionManager: ConnectionManager | null = null;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -148,7 +151,82 @@ app.get("/api/bindings", async (_req, res) => {
   }
 });
 
-export function startHttpServer(port: number): Server {
+
+app.get("/api/overview", async (_req, res) => {
+  try {
+    const [
+      queues,
+      exchanges,
+      bindings,
+      messages,
+      // connections
+    ] = await Promise.all([
+      pool.query("SELECT COUNT(*)::int AS total FROM queues"),
+
+      pool.query("SELECT COUNT(*)::int AS total FROM exchanges"),
+
+      pool.query("SELECT COUNT(*)::int AS total FROM bindings"),
+
+      pool.query(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE status = 'ready')::int AS ready,
+          COUNT(*) FILTER (WHERE status = 'in_flight')::int AS in_flight,
+          COUNT(*) FILTER (WHERE status = 'dead')::int AS dead
+        FROM messages
+      `)
+    ]);
+
+    res.status(200).json({
+      success: true,
+      overview: {
+        queues: queues.rows[0].total,
+        exchanges: exchanges.rows[0].total,
+        activeConnections: activeConnectionManager?.count ?? 0,
+        bindings: bindings.rows[0].total,
+        messages: messages.rows[0].total,
+        readyMessages: messages.rows[0].ready,
+        inFlightMessages: messages.rows[0].in_flight,
+        deadMessages: messages.rows[0].dead
+      }
+    });
+  } catch (error) {
+    console.error("[HTTP] Failed to fetch overview:", error);
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "ERR_INTERNAL",
+        message: "Failed to retrieve broker overview"
+      }
+    });
+  }
+});
+
+app.get("/api/connections", (_req, res) => {
+  const connections = activeConnectionManager?.getAll() ?? [];
+
+  res.status(200).json({
+    success: true,
+    count: connections.length,
+    connections: connections.map((connection) => ({
+      id: connection.id,
+      clientName: connection.clientName,
+      username: connection.username,
+      remoteAddress: connection.remoteAddress,
+      remotePort: connection.remotePort,
+      connected: connection.isConnected,
+      authenticated: connection.isAuthenticated
+    }))
+  });
+});
+
+export function startHttpServer(
+  port: number,
+  connectionManager: ConnectionManager
+): Server {
+  activeConnectionManager = connectionManager;
+
   const server = app.listen(port, "127.0.0.1", () => {
     console.log(
       `[HTTP Server] Management API listening on http://127.0.0.1:${port}`

@@ -20,9 +20,12 @@ async function startMessageX(): Promise<void> {
   const HTTP_PORT = Number(process.env.HTTP_PORT) || 3000;
   const TCP_PORT = Number(process.env.TCP_PORT) || 5678;
 
-  const httpServer = startHttpServer(HTTP_PORT);
+const tcpServer = new TcpServer();
 
-  const tcpServer = new TcpServer();
+const httpServer = startHttpServer(
+  HTTP_PORT,
+  tcpServer.connectionManager
+);
 
   tcpServer.start(TCP_PORT);
 

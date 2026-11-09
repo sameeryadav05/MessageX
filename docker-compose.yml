@@ -29,7 +29,7 @@ services:
     image: ${BROKER_IMAGE:-messagex-broker:local}
     build:
       context: .
-      dockerfile: apps/broker/Dockerfile
+      dockerfile: Dockerfile
 
     restart: unless-stopped
     healthcheck:

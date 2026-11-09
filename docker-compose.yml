@@ -97,7 +97,7 @@ services:
     image: ${BROKER_IMAGE:-messagex-broker:local}
     build:
       context: .
-      dockerfile: apps/broker/Dockerfile
+      dockerfile: Dockerfile
 
     restart: "no"
 
@@ -116,7 +116,6 @@ services:
 
     networks:
       - internal
-
   nginx-proxy:
     image: nginxproxy/nginx-proxy:1.9
     container_name: messagex-edge

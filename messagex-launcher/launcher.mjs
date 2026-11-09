@@ -36,9 +36,9 @@ const DATA_DIR = "/data";
 const CREDENTIALS_FILE = `${DATA_DIR}/credentials.txt`;
 
 const names = {
-  postgres: "messagex-postgres",
-  broker: "messagex-broker",
-  dashboard: "messagex-dashboard"
+  postgres: "messagex-launcher-postgres",
+  broker: "messagex-launcher-broker",
+  dashboard: "messagex-launcher-dashboard"
 };
 
 const log = (message) => {
@@ -266,7 +266,7 @@ async function initializeAdmin(
   credentials,
   databasePassword
 ) {
-  const name = "messagex-admin-init";
+  const name = "messagex-launcher-admin-init";
 
   const existing = await inspectContainer(name);
 

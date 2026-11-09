@@ -3,13 +3,15 @@ import { z } from "zod";
 
 import { PROTOCOL_VERSION } from "./protocol.constants.js";
 
-// Commands supported by our initial protocol.
 export const COMMANDS = [
   "CONNECT",
   "AUTH",
   "QUEUE_DECLARE",
+  "QUEUE_DELETE",
   "EXCHANGE_DECLARE",
+  "EXCHANGE_DELETE",
   "BIND",
+  "UNBIND",
   "PUBLISH",
   "CONSUME",
   "ACK",
@@ -50,7 +52,8 @@ export const ResponseSchema = BaseSchema.extend({
       message.payload === undefined;
   },
   {
-    message: "Successful responses cannot contain errors, and failed responses must contain an error without a payload"
+    message:
+      "Successful responses cannot contain errors, and failed responses must contain an error without a payload"
   }
 );
 
@@ -67,11 +70,8 @@ export const ProtocolMessageSchema = z.discriminatedUnion("type", [
   EventSchema
 ]);
 
-// Infer TypeScript types directly from schemas.
 export type ValidatedCommand = z.infer<typeof CommandSchema>;
-
 export type ValidatedResponse = z.infer<typeof ResponseSchema>;
-
 export type ValidatedEvent = z.infer<typeof EventSchema>;
 
 export type ValidatedProtocolMessage =

@@ -538,4 +538,35 @@ export class ConsumerManager {
       )
     );
   }
+
+  
+  /**
+   * Removes all in-memory consumer state associated with a deleted queue.
+   */
+  removeQueue(queueName: string): void {
+    // Remove subscriptions for this queue.
+    for (const [connectionId, subscriptions] of this.subscriptions) {
+      subscriptions.delete(queueName);
+
+      if (subscriptions.size === 0) {
+        this.subscriptions.delete(connectionId);
+      }
+    }
+
+    // Remove in-flight delivery tracking.
+    for (const [key, deliveryTag] of this.inFlight) {
+      if (key.endsWith(`:${queueName}`)) {
+        this.inFlight.delete(key);
+        this.deliveryQueues.delete(deliveryTag);
+      }
+    }
+
+    // Clear queue-specific dispatch state.
+    this.lastDispatched.delete(queueName);
+    this.dispatchRequested.delete(queueName);
+  }
+
+
+
+
 }

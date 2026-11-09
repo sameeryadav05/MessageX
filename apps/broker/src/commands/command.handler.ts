@@ -20,6 +20,9 @@ import { handleAck } from "./handlers/ack.handler.js";
 import { handleNack } from "./handlers/nack.handler.js";
 import { handleCancel } from "./handlers/cancel.handler.js";
 import { handleAuth } from "./handlers/auth.handler.js";
+import { handleQueueDelete } from "./handlers/queue-delete.handler.js";
+import { handleExchangeDelete } from "./handlers/exchange-delete.handler.js";
+import { handleUnbind } from "./handlers/unbind.handler.js";
 
 export class CommandHandler {
   private readonly handlers: Map<string, CommandHandlerFunction>;
@@ -39,6 +42,9 @@ export class CommandHandler {
     this.handlers.set("NACK", handleNack);
     this.handlers.set("CANCEL", handleCancel);
     this.handlers.set("AUTH", handleAuth);
+    this.handlers.set("QUEUE_DELETE", handleQueueDelete);
+    this.handlers.set("EXCHANGE_DELETE", handleExchangeDelete);
+    this.handlers.set("UNBIND", handleUnbind);
   }
 
   async handle(

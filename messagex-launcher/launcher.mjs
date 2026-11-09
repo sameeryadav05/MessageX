@@ -12,15 +12,19 @@ const docker = new Docker({
   socketPath: "/var/run/docker.sock"
 });
 
-// This version selects the broker and dashboard image tags.
-// It is independent of the launcher Docker image tag.
+// Image versions can be released independently. MESSAGEX_VERSION remains
+// a convenient fallback for installations that intentionally use matching tags.
 const VERSION = process.env.MESSAGEX_VERSION || "0.1.0";
+const BROKER_VERSION =
+  process.env.MESSAGEX_BROKER_VERSION || VERSION;
+const DASHBOARD_VERSION =
+  process.env.MESSAGEX_DASHBOARD_VERSION || VERSION;
 
 const BROKER_IMAGE =
-  `sameeryadav2005/messagex-broker:${VERSION}`;
+  `sameeryadav2005/messagex-broker:${BROKER_VERSION}`;
 
 const DASHBOARD_IMAGE =
-  `sameeryadav2005/messagex-dashboard:${VERSION}`;
+  `sameeryadav2005/messagex-dashboard:${DASHBOARD_VERSION}`;
 
 const OWNER_LABEL = "com.imsameer.messagex.launcher";
 const OWNER_VALUE = "true";

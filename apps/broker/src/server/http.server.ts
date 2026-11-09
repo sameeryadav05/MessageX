@@ -221,6 +221,69 @@ app.get("/api/connections", (_req, res) => {
   });
 });
 
+// Get message statistics for one queue
+app.get("/api/queues/:name/stats", async (req, res) => {
+  try {
+    const result = await pool.query<{
+      total: number;
+      ready: number;
+      in_flight: number;
+      dead: number;
+    }>(
+      `SELECT
+         COUNT(m.id)::int AS total,
+         COUNT(m.id) FILTER (
+           WHERE m.status = 'ready'
+         )::int AS ready,
+         COUNT(m.id) FILTER (
+           WHERE m.status = 'in_flight'
+         )::int AS in_flight,
+         COUNT(m.id) FILTER (
+           WHERE m.status = 'dead'
+         )::int AS dead
+       FROM queues q
+       LEFT JOIN messages m ON m.queue_id = q.id
+       WHERE q.name = $1
+       GROUP BY q.id`,
+      [req.params.name]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: {
+          code: "ERR_QUEUE_NOT_FOUND",
+          message: "Queue not found"
+        }
+      });
+      return;
+    }
+
+    const stats = result.rows[0];
+
+    res.status(200).json({
+      success: true,
+      queueName: req.params.name,
+      messages: {
+        total: stats.total,
+        ready: stats.ready,
+        inFlight: stats.in_flight,
+        dead: stats.dead
+      }
+    });
+  } catch (error) {
+    console.error("[HTTP] Failed to fetch queue statistics:", error);
+
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "ERR_INTERNAL",
+        message: "Failed to retrieve queue statistics"
+      }
+    });
+  }
+});
+
 export function startHttpServer(
   port: number,
   connectionManager: ConnectionManager

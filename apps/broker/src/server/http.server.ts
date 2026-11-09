@@ -15,8 +15,11 @@ import type { ConnectionManager } from "../connection/connection-manager.js";
 import os from "node:os";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { brokerMetrics } from "../monitoring/metrics.js";
+import {
+  requireManagementAuth
+} from "../auth/http-auth.middleware.js";
 
-const app = express();
+
 let activeConnectionManager: ConnectionManager | null = null;
 
 // Monitor Node.js event-loop latency.
@@ -59,8 +62,14 @@ function bytesToMB(bytes: number): number {
   return Number((bytes / (1024 * 1024)).toFixed(2));
 }
 
+
+const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Require authentication for every management API endpoint.
+app.use("/api", requireManagementAuth);
+
+
 
 app.get('/ping',(_req,res)=>{
   res.status(200).send('pong')

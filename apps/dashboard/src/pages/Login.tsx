@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import {
-  connectToBroker,
+  loginToBroker,
   type BrokerConfig
 } from "../services/api";
 
@@ -55,7 +55,7 @@ export default function Login({ onConnected }: LoginProps) {
     setLoading(true);
 
     try {
-      await connectToBroker(config);
+      await loginToBroker(config);
       onConnected(config);
     } catch (err: any) {
       const status = err?.response?.status;

@@ -17,7 +17,6 @@ import { usePolling } from "./hooks/usePolling";
 import {
   disconnectBroker,
   getBasicHealth,
-  loginToBroker,
   logoutFromBroker,
   restoreBrokerSession,
   type BrokerConfig
@@ -61,10 +60,8 @@ export default function App() {
     }
   }
 
-  async function handleConnected(config: BrokerConfig) {
-    // loginToBroker has already configured the API client and established
-    // either a browser session or a legacy cross-origin Basic connection.
-    await loginToBroker(config);
+  function handleConnected(config: BrokerConfig) {
+    // Login has already authenticated and configured the API client.
     setBroker(config);
   }
 

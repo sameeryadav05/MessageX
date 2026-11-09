@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { pool } from "../database/database.js";
 import { routeMessage } from "../routing/routing.js";
 
+
+
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------

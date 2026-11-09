@@ -10,8 +10,13 @@ import {
   claimNextMessage,
   releaseMessage,
   requeueExpiredMessages,
-  requeueMessagesForConnection
+  requeueMessagesForConnection,
+  publishMessage
 } from "../src/messages/message.repository.js";
+
+import { declareExchange } from "../src/exchanges/exchange.repository.js";
+import { bindQueueToExchange } from "../src/bindings/binding.repository.js";
+
 
 const createdQueues: string[] = [];
 
@@ -31,6 +36,40 @@ async function createQueue(
   createdQueues.push(name);
 
   return queue;
+}
+
+const createdExchanges: string[] = [];
+
+async function createExchange(
+  type: "direct" | "fanout" | "topic" | "headers"
+) {
+  const name = `test-exchange-${randomUUID()}`;
+
+  const exchange = await declareExchange({
+    name,
+    type
+  });
+
+  createdExchanges.push(name);
+
+  return exchange;
+}
+
+async function getQueueMessages(queueId: string) {
+  const result = await pool.query<{
+    id: string;
+    payload: Buffer;
+    headers: Record<string, unknown>;
+    routing_key: string;
+  }>(
+    `SELECT id, payload, headers, routing_key
+     FROM messages
+     WHERE queue_id = $1
+     ORDER BY created_at ASC, id ASC`,
+    [queueId]
+  );
+
+  return result.rows;
 }
 
 async function insertMessage(queueId: string): Promise<string> {
@@ -73,6 +112,15 @@ async function getMessage(id: string) {
 
 describe("Message Repository Integration Tests", () => {
   after(async () => {
+    // Delete only exchanges created by this test suite.
+    // Deleting exchanges also removes their bindings through ON DELETE CASCADE.
+    for (const exchangeName of createdExchanges) {
+      await pool.query(
+        "DELETE FROM exchanges WHERE name = $1",
+        [exchangeName]
+      );
+    }
+
     // Delete only queues created by this test suite.
     for (const queueName of createdQueues) {
       await pool.query(
@@ -361,4 +409,198 @@ describe("Message Repository Integration Tests", () => {
     assert.equal(message.queue_id, dlq.id);
     assert.equal(message.status, "ready");
   });
+
+  it("routes messages through a direct exchange using exact routing keys", async () => {
+    const exchange = await createExchange("direct");
+
+    const matchingQueue = await createQueue();
+    const unmatchedQueue = await createQueue();
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: matchingQueue.name,
+      routingKey: "orders.created"
+    });
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: unmatchedQueue.name,
+      routingKey: "orders.cancelled"
+    });
+
+    const result = await publishMessage({
+      exchangeName: exchange.name,
+      routingKey: "orders.created",
+      message: { orderId: 101 }
+    });
+
+    assert.equal(result.routedQueues, 1);
+
+    const matchingMessages = await getQueueMessages(matchingQueue.id);
+    const unmatchedMessages = await getQueueMessages(unmatchedQueue.id);
+
+    assert.equal(matchingMessages.length, 1);
+    assert.equal(unmatchedMessages.length, 0);
+
+    assert.deepEqual(
+      JSON.parse(matchingMessages[0]!.payload.toString("utf8")),
+      { orderId: 101 }
+    );
+  });
+
+  it("routes messages to every bound queue through a fanout exchange", async () => {
+    const exchange = await createExchange("fanout");
+
+    const queueA = await createQueue();
+    const queueB = await createQueue();
+    const queueC = await createQueue();
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: queueA.name
+    });
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: queueB.name
+    });
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: queueC.name
+    });
+
+    const result = await publishMessage({
+      exchangeName: exchange.name,
+      routingKey: "anything",
+      message: { event: "system.broadcast" }
+    });
+
+    assert.equal(result.routedQueues, 3);
+
+    assert.equal((await getQueueMessages(queueA.id)).length, 1);
+    assert.equal((await getQueueMessages(queueB.id)).length, 1);
+    assert.equal((await getQueueMessages(queueC.id)).length, 1);
+  });
+
+  it("routes messages through topic exchange wildcard bindings", async () => {
+    const exchange = await createExchange("topic");
+
+    const singleWordQueue = await createQueue();
+    const multipleWordsQueue = await createQueue();
+    const unmatchedQueue = await createQueue();
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: singleWordQueue.name,
+      routingKey: "orders.*"
+    });
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: multipleWordsQueue.name,
+      routingKey: "orders.#"
+    });
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: unmatchedQueue.name,
+      routingKey: "payments.#"
+    });
+
+    const result = await publishMessage({
+      exchangeName: exchange.name,
+      routingKey: "orders.created",
+      message: { orderId: 202 }
+    });
+
+    assert.equal(result.routedQueues, 2);
+
+    assert.equal((await getQueueMessages(singleWordQueue.id)).length, 1);
+    assert.equal((await getQueueMessages(multipleWordsQueue.id)).length, 1);
+    assert.equal((await getQueueMessages(unmatchedQueue.id)).length, 0);
+  });
+
+  it("routes messages through headers exchange using all and any matching", async () => {
+    const exchange = await createExchange("headers");
+
+    const allQueue = await createQueue();
+    const anyQueue = await createQueue();
+    const unmatchedQueue = await createQueue();
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: allQueue.name,
+      arguments: {
+        "x-match": "all",
+        format: "json",
+        region: "apac"
+      }
+    });
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: anyQueue.name,
+      arguments: {
+        "x-match": "any",
+        format: "xml",
+        region: "apac"
+      }
+    });
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: unmatchedQueue.name,
+      arguments: {
+        "x-match": "all",
+        format: "xml",
+        region: "europe"
+      }
+    });
+
+    const result = await publishMessage({
+      exchangeName: exchange.name,
+      message: { reportId: 303 },
+      headers: {
+        format: "json",
+        region: "apac"
+      }
+    });
+
+    assert.equal(result.routedQueues, 2);
+
+    assert.equal((await getQueueMessages(allQueue.id)).length, 1);
+    assert.equal((await getQueueMessages(anyQueue.id)).length, 1);
+    assert.equal((await getQueueMessages(unmatchedQueue.id)).length, 0);
+  });
+
+  it("inserts only one message when multiple bindings match the same queue", async () => {
+    const exchange = await createExchange("topic");
+    const queue = await createQueue();
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: queue.name,
+      routingKey: "orders.*"
+    });
+
+    await bindQueueToExchange({
+      exchangeName: exchange.name,
+      queueName: queue.name,
+      routingKey: "orders.#"
+    });
+
+    const result = await publishMessage({
+      exchangeName: exchange.name,
+      routingKey: "orders.created",
+      message: { orderId: 404 }
+    });
+
+    assert.equal(result.routedQueues, 1);
+
+    const messages = await getQueueMessages(queue.id);
+
+    assert.equal(messages.length, 1);
+  });
+
 });

@@ -29,13 +29,6 @@ export interface BrokerConfig {
 export function configureBroker(config: BrokerConfig): boolean {
   const hostname = config.hostname.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
-  const isLocal =
-    hostname === "localhost" ||
-    hostname === "127.0.0.1";
-
-  const isDefaultLocal =
-    isLocal && config.port === "3000";
-
   // Local development uses the Vite proxy.
   // Remote brokers are accessed directly.
 const isSameOrigin =

@@ -80,14 +80,12 @@ async function ensureNetwork() {
 
     await docker.createNetwork({
       Name: NETWORK,
-      Driver: "bridge",
-      Internal: true
+      Driver: "bridge"
     });
 
-    log("Private network created");
+    log("MessageX network created");
   }
 }
-
 // Create persistent PostgreSQL volume.
 async function ensureVolume() {
   try {

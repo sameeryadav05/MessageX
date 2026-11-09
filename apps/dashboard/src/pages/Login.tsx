@@ -64,7 +64,7 @@ export default function Login({ onConnected }: LoginProps) {
 
     try {
       await loginToBroker(config);
-      onConnected(config);
+      onConnected({ ...config, password: "" });
     } catch (err: any) {
       const status = err?.response?.status;
 

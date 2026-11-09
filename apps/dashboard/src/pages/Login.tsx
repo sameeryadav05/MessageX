@@ -19,15 +19,14 @@ interface LoginProps {
 }
 
 export default function Login({ onConnected }: LoginProps) {
-  const isLocalDashboard =
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1";
-
-  const [hostname, setHostname] = useState(
-    isLocalDashboard ? "127.0.0.1" : window.location.hostname
-  );
+  // The dashboard image exposes the management API through its same-origin
+  // Nginx /api proxy. Use the actual dashboard URL, not the broker's internal
+  // container port (3000), which is intentionally not published to the host.
+  const [hostname, setHostname] = useState(window.location.hostname);
   const [port, setPort] = useState(
-    isLocalDashboard ? "3000" : window.location.protocol === "https:" ? "443" : (window.location.port || "80")
+    window.location.protocol === "https:"
+      ? "443"
+      : (window.location.port || "80")
   );
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");

@@ -1,5 +1,9 @@
 
-import { randomBytes, scrypt as scryptCallback } from "node:crypto";
+import {
+  randomBytes,
+  scrypt as scryptCallback
+} from "node:crypto";
+
 import { promisify } from "node:util";
 import pg from "pg";
 
@@ -37,7 +41,9 @@ try {
   );
 
   if (result.rowCount === 0) {
-    console.log("[Bootstrap] Admin already exists; leaving credentials unchanged");
+    console.log(
+      "[Bootstrap] Admin already exists; credentials unchanged"
+    );
   } else {
     console.log("[Bootstrap] Initial admin account created");
   }

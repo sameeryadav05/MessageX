@@ -40,7 +40,7 @@ export class MessageX extends EventEmitter {
   private readonly pendingConsumersByQueue = new Map<string, ConsumeOptions>();
   private readonly options: Required<Pick<MessageXOptions,
     "host" | "port" | "username" | "password" | "clientName" |
-    "connectTimeout" | "requestTimeout" | "maxFrameSize">>();
+    "connectTimeout" | "requestTimeout" | "maxFrameSize">>;
   private closing = false;
   private connected = false;
   private authenticated = false;

@@ -149,6 +149,6 @@ npm test --workspace=messagex-client
 
 ## Current protocol coverage
 
-The client implements protocol version 1 commands supported by the broker: CONNECT, AUTH, QUEUE_DECLARE, QUEUE_DELETE, EXCHANGE_DECLARE, EXCHANGE_DELETE, BIND, UNBIND, PUBLISH, CONSUME, ACK, NACK and CANCEL. HEARTBEAT is exposed as an explicit method.
+The client implements protocol version 1 commands supported by the broker: CONNECT, AUTH, QUEUE_DECLARE, QUEUE_DELETE, EXCHANGE_DECLARE, EXCHANGE_DELETE, BIND, UNBIND, PUBLISH, CONSUME, ACK, NACK and CANCEL. 
 
 Management HTTP APIs, browser WebSocket transport, TLS transport, automatic reconnect, transactions, and batch publishing are not part of this initial release.

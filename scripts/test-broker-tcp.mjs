@@ -74,6 +74,13 @@ socket.on("connect", async () => {
 
     console.log("CONNECT successful:", connectResponse);
 
+    const authResponse = await sendCommand("AUTH", {
+      username: "admin",
+      password: process.env.MESSAGEX_PASSWORD,
+    });
+
+console.log("AUTH successful:", authResponse);
+
     const exchangeName = `test-exchange-${Date.now()}`;
 
     const exchangeResponse = await sendCommand("EXCHANGE_DECLARE", {

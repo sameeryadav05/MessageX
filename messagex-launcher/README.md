@@ -10,12 +10,12 @@ Run a complete self-hosted MessageX installation (broker, dashboard and PostgreS
 
 ## Start
 
+The launcher creates the broker and dashboard containers itself and publishes their ports directly on the Docker host. Do not add `-p` flags to the launcher container: those ports are published by its child containers.
+
 ~~~bash
 docker run -d \
   --name messagex \
   --restart unless-stopped \
-  -p 5678:5678 \
-  -p 15672:15672 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v messagex_launcher_data:/data \
   sameeryadav2005/messagex:VERSION
@@ -32,7 +32,7 @@ On a server, replace localhost with the server's public IP or a DNS name pointin
 
 ## Configure ports and credentials
 
-Host ports and bind addresses can be changed without changing container ports. Set `TCP_PORT`, `DASHBOARD_PORT`, and optionally `TCP_BIND_ADDRESS` / `DASHBOARD_BIND_ADDRESS` as launcher environment variables. Defaults are 5678, 15672 and 0.0.0.0.
+Host ports and bind addresses can be changed without changing container ports. Set `TCP_PORT` (default 5678), `DASHBOARD_PORT` (default 15672), and optionally `TCP_BIND_ADDRESS` (default 0.0.0.0) as launcher environment variables.
 
 For custom admin credentials on first startup, set both `MESSAGEX_DEFAULT_USER` and `MESSAGEX_DEFAULT_PASS` (password must be at least 12 characters). If omitted, the launcher generates a password and prints it in its logs. Credentials persist in the launcher data volume and are not reset by restarts.
 

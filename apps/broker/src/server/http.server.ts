@@ -215,7 +215,8 @@ app.get("/api/bindings", async (_req, res) => {
         id: binding.id,
         exchangeName: binding.exchange_name,
         queueName: binding.queue_name,
-        routingKey: binding.routing_key
+        routingKey: binding.routing_key,
+        arguments: binding.arguments
       }))
     });
   } catch (error) {

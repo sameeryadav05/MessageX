@@ -1,7 +1,7 @@
 {
   "name": "messagex-client",
-  "version": "0.1.0",
-  "description": "Official Node.js client for the MessageX message broker",
+  "version": "0.1.1",
+  "description": "Official JavaScript and TypeScript Node.js client for the MessageX message broker",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -37,7 +37,10 @@
     "queue",
     "pubsub",
     "messaging",
-    "tcp"
+    "tcp",
+    "typescript",
+    "tcp-client",
+    "event-driven"
   ],
   "repository": {
     "type": "git",

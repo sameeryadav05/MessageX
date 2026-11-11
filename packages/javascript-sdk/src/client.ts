@@ -37,6 +37,7 @@ export class MessageX extends EventEmitter {
   private decoder: FrameDecoder;
   private readonly pending = new Map<string, PendingRequest>();
   private readonly consumers = new Map<string, ConsumeOptions>();
+  private readonly pendingConsumersByQueue = new Map<string, ConsumeOptions>();
   private readonly options: Required<Pick<MessageXOptions,
     "host" | "port" | "username" | "password" | "clientName" |
     "connectTimeout" | "requestTimeout" | "maxFrameSize">>();
@@ -225,9 +226,20 @@ export class MessageX extends EventEmitter {
       throw new TypeError("consume requires an onMessage callback");
     }
 
-    const payload = await this.request("CONSUME", {
-      queueName: options.queueName
-    });
+    // The broker may emit MESSAGE_DELIVERED before replying to CONSUME.
+    // Register the callback by queue before sending the command to avoid losing
+    // the first delivery in that response/event race.
+    this.pendingConsumersByQueue.set(options.queueName, options);
+    let payload: Record<string, unknown>;
+    try {
+      payload = await this.request("CONSUME", {
+        queueName: options.queueName
+      });
+    } catch (error) {
+      this.pendingConsumersByQueue.delete(options.queueName);
+      throw error;
+    }
+    this.pendingConsumersByQueue.delete(options.queueName);
     const consumerTag = String(payload.consumerTag ?? "");
     if (!consumerTag) {
       throw new MessageXConnectionError("Broker did not return a consumerTag");
@@ -246,10 +258,6 @@ export class MessageX extends EventEmitter {
         this.consumers.delete(consumerTag);
       }
     };
-  }
-
-  async heartbeat(): Promise<Record<string, unknown>> {
-    return this.request("HEARTBEAT", {});
   }
 
   private async request(
@@ -303,7 +311,9 @@ export class MessageX extends EventEmitter {
         else if (parsed.type === "EVENT") this.handleEvent(parsed);
       }
     } catch (error) {
-      this.emit("error", error instanceof Error ? error : new Error(String(error)));
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      if (this.listenerCount("error") > 0) this.emit("error", normalized);
+      else this.emit("warning", normalized);
       this.destroySocket();
     }
   }
@@ -336,7 +346,8 @@ export class MessageX extends EventEmitter {
 
     const data = event.payload;
     const consumerTag = String(data.consumerTag ?? "");
-    const subscription = this.consumers.get(consumerTag);
+    const subscription = this.consumers.get(consumerTag)
+      ?? this.pendingConsumersByQueue.get(String(data.queueName ?? ""));
     if (!subscription) {
       this.emit("warning", new Error(`Message delivered for unknown consumer ${consumerTag}`));
       return;
@@ -365,7 +376,11 @@ export class MessageX extends EventEmitter {
   }
 
   private handleSocketError(error: Error): void {
-    if (!this.closing) this.emit("error", new MessageXConnectionError(error.message, { cause: error }));
+    if (!this.closing) {
+      const wrapped = new MessageXConnectionError(error.message, { cause: error });
+      if (this.listenerCount("error") > 0) this.emit("error", wrapped);
+      else this.emit("warning", wrapped);
+    }
   }
 
   private handleClose(): void {

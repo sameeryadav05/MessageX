@@ -18,7 +18,7 @@ services:
     networks: [internal]
 
   broker:
-    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-broker:${MESSAGEX_BROKER_VERSION:?Set MESSAGEX_BROKER_VERSION}
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-broker-v2:${MESSAGEX_BROKER_VERSION:?Set MESSAGEX_BROKER_VERSION}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -43,7 +43,7 @@ services:
     networks: [internal]
 
   dashboard:
-    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-dashboard:${MESSAGEX_DASHBOARD_VERSION:?Set MESSAGEX_DASHBOARD_VERSION}
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-dashboard-v2:${MESSAGEX_DASHBOARD_VERSION:?Set MESSAGEX_DASHBOARD_VERSION}
     restart: unless-stopped
     depends_on:
       broker:
@@ -53,7 +53,7 @@ services:
     networks: [internal]
 
   admin-init:
-    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-broker:${MESSAGEX_BROKER_VERSION:?Set MESSAGEX_BROKER_VERSION}
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-broker-v2:${MESSAGEX_BROKER_VERSION:?Set MESSAGEX_BROKER_VERSION}
     restart: "no"
     command: ["node", "apps/broker/scripts/bootstrap-admin.mjs"]
     environment:

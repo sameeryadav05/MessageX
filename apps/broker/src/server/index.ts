@@ -27,7 +27,8 @@ const tcpServer = new TcpServer();
 const httpServer = startHttpServer(
   HTTP_PORT,
   tcpServer.connectionManager,
-  HOST
+  HOST,
+  tcpServer.consumerManager
 );
 
 tcpServer.start(TCP_PORT, HOST);

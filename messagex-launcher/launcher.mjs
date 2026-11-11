@@ -14,17 +14,17 @@ const docker = new Docker({
 
 // Image versions can be released independently. MESSAGEX_VERSION remains
 // a convenient fallback for installations that intentionally use matching tags.
-const VERSION = process.env.MESSAGEX_VERSION || "0.1.0";
+const VERSION = process.env.MESSAGEX_VERSION;
 const BROKER_VERSION =
-  process.env.MESSAGEX_BROKER_VERSION || VERSION;
+  process.env.MESSAGEX_BROKER_VERSION || VERSION || "0.1.1";
 const DASHBOARD_VERSION =
-  process.env.MESSAGEX_DASHBOARD_VERSION || VERSION;
+  process.env.MESSAGEX_DASHBOARD_VERSION || VERSION || "0.1.4";
 
 const BROKER_IMAGE =
-  `sameeryadav2005/messagex-broker:${BROKER_VERSION}`;
+  `sameeryadav2005/messagex-broker-v2:${BROKER_VERSION}`;
 
 const DASHBOARD_IMAGE =
-  `sameeryadav2005/messagex-dashboard:${DASHBOARD_VERSION}`;
+  `sameeryadav2005/messagex-dashboard-v2:${DASHBOARD_VERSION}`;
 
 const OWNER_LABEL = "com.imsameer.messagex.launcher";
 const OWNER_VALUE = "true";
@@ -57,7 +57,7 @@ const DASHBOARD_PORT =
   String(process.env.DASHBOARD_PORT || 15672);
 
 const TCP_HOST_IP =
-  process.env.TCP_BIND_ADDRESS || "127.0.0.1";
+  process.env.TCP_BIND_ADDRESS || "0.0.0.0";
 
 const TCP_HOST_PORT =
   String(process.env.TCP_PORT || 5678);
@@ -334,13 +334,18 @@ async function ensureRunning(name, config) {
       !existing.info.State.Running ||
       existing.info.State.Restarting ||
       ["restarting", "exited", "dead"].includes(existing.info.State.Status);
+    const expectedPorts = JSON.stringify(config.HostConfig?.PortBindings ?? {});
+    const actualPorts = JSON.stringify(existing.info.HostConfig?.PortBindings ?? {});
+    const portBindingsChanged = expectedPorts !== actualPorts;
 
-    if (!imageMatches || !networkAttached || unhealthyState) {
+    if (!imageMatches || !networkAttached || unhealthyState || portBindingsChanged) {
       const reason = !imageMatches
         ? "outdated image"
         : !networkAttached
           ? "missing private network attachment"
-          : "unhealthy container state";
+          : portBindingsChanged
+            ? "port binding configuration changed"
+            : "unhealthy container state";
 
       log(`Replacing launcher-owned container ${name}: ${reason}`);
       await removeOwnedContainer(name, existing);
@@ -666,6 +671,7 @@ async function main() {
 
   log(`Dashboard: http://<SERVER_PUBLIC_IP>:${DASHBOARD_PORT}`);
   log(`Broker TCP: ${TCP_HOST_IP}:${TCP_HOST_PORT}`);
+  log(`Dashboard HTTP: 0.0.0.0:${DASHBOARD_PORT}`);
 
   if (credentials.newlyGenerated) {
     log(`Admin username: ${credentials.username}`);
@@ -677,7 +683,7 @@ async function main() {
   }
 
   log("PostgreSQL is not exposed publicly.");
-  log("Broker TCP is localhost-only until TLS is implemented.");
+  log("TCP and dashboard ports are published without TLS. Restrict access with your host firewall when needed.");
 
   // Keep the launcher alive as a supervisor process.
   setInterval(() => {}, 60000);

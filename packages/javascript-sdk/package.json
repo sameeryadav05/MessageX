@@ -1,0 +1,51 @@
+{
+  "name": "messagex-client",
+  "version": "0.1.0",
+  "description": "Official Node.js client for the MessageX message broker",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepublishOnly": "npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.7.3"
+  },
+  "keywords": [
+    "messagex",
+    "message-broker",
+    "queue",
+    "pubsub",
+    "messaging",
+    "tcp"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sameeryadav05/MessageX.git",
+    "directory": "packages/javascript-sdk"
+  },
+  "homepage": "https://github.com/sameeryadav05/MessageX/tree/main/packages/javascript-sdk",
+  "bugs": {
+    "url": "https://github.com/sameeryadav05/MessageX/issues"
+  }
+}

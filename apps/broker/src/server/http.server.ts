@@ -1,12 +1,24 @@
 
 import express from "express";
 import type { Server } from "node:http";
-import { getAllExchanges } from "../exchanges/exchange.repository.js";
+import {
+  getAllExchanges,
+  declareExchange,
+  deleteExchange
+} from "../exchanges/exchange.repository.js";
 import {
   getAllQueues,
-  getQueueByName
+  getQueueByName,
+  declareQueue,
+  deleteQueue
 } from "../queues/queue.repository.js";
-import { getAllBindings } from "../bindings/binding.repository.js";
+import {
+  getAllBindings,
+  bindQueueToExchange,
+  unbindQueueFromExchange
+} from "../bindings/binding.repository.js";
+import { publishMessage } from "../messages/message.repository.js";
+import { ConsumerManager } from "../consumers/consumer.manager.js";
 import {
   pool,
   DATABASE_POOL_MAX
@@ -22,6 +34,7 @@ import managementAuthRoutes from "../auth/session.routes.js";
 
 
 let activeConnectionManager: ConnectionManager | null = null;
+let activeConsumerManager: ConsumerManager | null = null;
 
 // Monitor Node.js event-loop latency.
 const eventLoopMonitor = monitorEventLoopDelay({
@@ -57,6 +70,10 @@ function getProcessCpuUsage(): number {
   return Number(
     ((usedMicroseconds / elapsedMicroseconds / cpuCount) * 100).toFixed(2)
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function bytesToMB(bytes: number): number {
@@ -198,7 +215,8 @@ app.get("/api/bindings", async (_req, res) => {
         id: binding.id,
         exchangeName: binding.exchange_name,
         queueName: binding.queue_name,
-        routingKey: binding.routing_key
+        routingKey: binding.routing_key,
+        arguments: binding.arguments
       }))
     });
   } catch (error) {
@@ -214,6 +232,130 @@ app.get("/api/bindings", async (_req, res) => {
   }
 });
 
+
+
+/**
+ * Dashboard management mutations. These routes are protected by
+ * requireManagementAuth above and reuse the broker repositories.
+ */
+app.post("/api/queues", async (req, res) => {
+  const { name, durable, autoDelete, maxDeliveryCount, deadLetterQueue } = req.body ?? {};
+  if (typeof name !== "string" || !name.trim() || name.trim().length > 255 ||
+      (durable !== undefined && typeof durable !== "boolean") ||
+      (autoDelete !== undefined && typeof autoDelete !== "boolean") ||
+      (maxDeliveryCount !== undefined && (!Number.isInteger(maxDeliveryCount) || maxDeliveryCount < 1)) ||
+      (deadLetterQueue !== undefined && (typeof deadLetterQueue !== "string" || !deadLetterQueue.trim()))) {
+    res.status(400).json({ success: false, error: { code: "ERR_INVALID_QUEUE", message: "Provide a valid queue name and options" } });
+    return;
+  }
+  try {
+    const queue = await declareQueue({ name: name.trim(), durable, exclusive: false, autoDelete, maxDeliveryCount, deadLetterQueue });
+    res.status(201).json({ success: true, queue: { id: queue.id, name: queue.name, durable: queue.durable, exclusive: queue.exclusive, autoDelete: queue.auto_delete, createdAt: queue.created_at } });
+  } catch (error) {
+    res.status(400).json({ success: false, error: { code: "ERR_QUEUE_DECLARE_FAILED", message: error instanceof Error ? error.message : "Queue declaration failed" } });
+  }
+});
+
+app.delete("/api/queues/:name", async (req, res) => {
+  try {
+    const queue = await getQueueByName(req.params.name);
+    if (!queue) {
+      res.status(404).json({ success: false, error: { code: "ERR_QUEUE_NOT_FOUND", message: "Queue not found" } });
+      return;
+    }
+    if (queue.exclusive) {
+      res.status(409).json({ success: false, error: { code: "ERR_EXCLUSIVE_QUEUE", message: "Exclusive queues can only be deleted by their owning TCP connection" } });
+      return;
+    }
+    const deleted = await deleteQueue(req.params.name);
+    if (deleted) activeConsumerManager?.removeQueue(req.params.name);
+    res.status(200).json({ success: true, deleted, queueName: req.params.name });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { code: "ERR_QUEUE_DELETE_FAILED", message: error instanceof Error ? error.message : "Queue deletion failed" } });
+  }
+});
+
+app.post("/api/exchanges", async (req, res) => {
+  const { name, type, durable } = req.body ?? {};
+  if (typeof name !== "string" || !name.trim() || name.trim().length > 255 ||
+      !["direct", "fanout", "topic", "headers"].includes(type) ||
+      (durable !== undefined && typeof durable !== "boolean")) {
+    res.status(400).json({ success: false, error: { code: "ERR_INVALID_EXCHANGE", message: "Provide a valid name, exchange type and durable option" } });
+    return;
+  }
+  try {
+    const exchange = await declareExchange({ name: name.trim(), type, durable });
+    res.status(201).json({ success: true, exchange });
+  } catch (error) {
+    res.status(400).json({ success: false, error: { code: "ERR_EXCHANGE_DECLARE_FAILED", message: error instanceof Error ? error.message : "Exchange declaration failed" } });
+  }
+});
+
+app.delete("/api/exchanges/:name", async (req, res) => {
+  try {
+    const deleted = await deleteExchange(req.params.name);
+    if (!deleted) {
+      res.status(404).json({ success: false, error: { code: "ERR_EXCHANGE_NOT_FOUND", message: "Exchange not found" } });
+      return;
+    }
+    res.status(200).json({ success: true, deleted, exchangeName: req.params.name });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { code: "ERR_EXCHANGE_DELETE_FAILED", message: error instanceof Error ? error.message : "Exchange deletion failed" } });
+  }
+});
+
+app.post("/api/bindings", async (req, res) => {
+  const { exchangeName, queueName, routingKey, arguments: bindingArguments } = req.body ?? {};
+  if (typeof exchangeName !== "string" || !exchangeName.trim() ||
+      typeof queueName !== "string" || !queueName.trim() ||
+      (routingKey !== undefined && (typeof routingKey !== "string" || routingKey.length > 255)) ||
+      (bindingArguments !== undefined && !isRecord(bindingArguments))) {
+    res.status(400).json({ success: false, error: { code: "ERR_INVALID_BINDING", message: "Provide valid exchangeName, queueName, routingKey and arguments" } });
+    return;
+  }
+  try {
+    const binding = await bindQueueToExchange({ exchangeName: exchangeName.trim(), queueName: queueName.trim(), routingKey, arguments: bindingArguments });
+    res.status(201).json({ success: true, binding });
+  } catch (error) {
+    res.status(400).json({ success: false, error: { code: "ERR_BIND_FAILED", message: error instanceof Error ? error.message : "Binding failed" } });
+  }
+});
+
+app.delete("/api/bindings", async (req, res) => {
+  const { exchangeName, queueName, routingKey, arguments: bindingArguments } = req.body ?? {};
+  if (typeof exchangeName !== "string" || !exchangeName.trim() ||
+      typeof queueName !== "string" || !queueName.trim() ||
+      (routingKey !== undefined && typeof routingKey !== "string") ||
+      (bindingArguments !== undefined && !isRecord(bindingArguments))) {
+    res.status(400).json({ success: false, error: { code: "ERR_INVALID_BINDING", message: "Provide valid binding identifiers" } });
+    return;
+  }
+  try {
+    const removed = await unbindQueueFromExchange({ exchangeName: exchangeName.trim(), queueName: queueName.trim(), routingKey, arguments: bindingArguments });
+    res.status(200).json({ success: true, removed });
+  } catch (error) {
+    res.status(400).json({ success: false, error: { code: "ERR_UNBIND_FAILED", message: error instanceof Error ? error.message : "Unbind failed" } });
+  }
+});
+
+app.post("/api/publish", async (req, res) => {
+  const { exchangeName, routingKey, message, headers } = req.body ?? {};
+  if (typeof exchangeName !== "string" || !exchangeName.trim() ||
+      (routingKey !== undefined && typeof routingKey !== "string") ||
+      !Object.prototype.hasOwnProperty.call(req.body ?? {}, "message") ||
+      (headers !== undefined && !isRecord(headers))) {
+    res.status(400).json({ success: false, error: { code: "ERR_INVALID_PUBLISH", message: "Provide exchangeName, optional routingKey and headers, and a JSON message" } });
+    return;
+  }
+  try {
+    const result = await publishMessage({ exchangeName: exchangeName.trim(), routingKey, message, headers });
+    brokerMetrics.recordPublished(result.routedQueues);
+    await activeConsumerManager?.deliverAvailable();
+    res.status(200).json({ success: true, result });
+  } catch (error) {
+    res.status(400).json({ success: false, error: { code: "ERR_PUBLISH_FAILED", message: error instanceof Error ? error.message : "Publish failed" } });
+  }
+});
 
 app.get("/api/overview", async (_req, res) => {
   try {
@@ -599,9 +741,11 @@ app.get("/health/ready", async (_req, res) => {
 export function startHttpServer(
   port: number,
   connectionManager: ConnectionManager,
-  host: string = "127.0.0.1"
+  host: string = "127.0.0.1",
+  consumerManager?: ConsumerManager
 ): Server {
   activeConnectionManager = connectionManager;
+  activeConsumerManager = consumerManager ?? null;
 
   const server = app.listen(port, host, () => {
     console.log(

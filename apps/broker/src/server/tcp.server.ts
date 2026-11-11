@@ -12,7 +12,7 @@ export class TcpServer {
   public readonly connectionManager: ConnectionManager;
 
   private readonly commandHandler: CommandHandler;
-  private readonly consumerManager: ConsumerManager;
+  public readonly consumerManager: ConsumerManager;
 
   private readonly cleanupTasks = new Set<Promise<void>>();
 

@@ -1,4 +1,3 @@
-
 {
   "name": "messagex",
   "version": "1.0.0",
@@ -6,7 +5,8 @@
   "description": "A self-hosted message broker",
   "workspaces": [
     "apps/broker",
-    "apps/dashboard"
+    "apps/dashboard",
+    "packages/javascript-sdk"
   ],
   "scripts": {
     "dev:broker": "npm run dev --workspace=@messagex/broker",
@@ -14,14 +14,17 @@
     "test:broker": "npm run test --workspace=@messagex/broker",
     "dev:dashboard": "npm run dev --workspace=@messagex/dashboard",
     "build:dashboard": "npm run build --workspace=@messagex/dashboard",
-    "preview:dashboard": "npm run preview --workspace=@messagex/dashboard"
+    "preview:dashboard": "npm run preview --workspace=@messagex/dashboard",
+    "build:sdk": "npm run build --workspace=messagex-client",
+    "test:sdk": "npm test --workspace=messagex-client"
   },
   "type": "module",
   "allowScripts": {
     "esbuild@0.28.2": true
   },
   "dependencies": {
-    "dotenv": "^18.0.9"
+    "dotenv": "^18.0.9",
+    "messagex-client": "^0.1.0"
   },
   "devDependencies": {
     "@types/dotenv": "^6.1.1"

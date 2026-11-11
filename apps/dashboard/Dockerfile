@@ -6,6 +6,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/broker/package.json ./apps/broker/
 COPY apps/dashboard/package.json ./apps/dashboard/
+COPY packages/javascript-sdk/package.json ./packages/javascript-sdk/
 
 RUN npm ci
 

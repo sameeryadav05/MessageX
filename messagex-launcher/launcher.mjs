@@ -21,10 +21,10 @@ const DASHBOARD_VERSION =
   process.env.MESSAGEX_DASHBOARD_VERSION || VERSION || "0.1.4";
 
 const BROKER_IMAGE =
-  `sameeryadav2005/messagex-broker:${BROKER_VERSION}`;
+  `sameeryadav2005/messagex-broker-v2:${BROKER_VERSION}`;
 
 const DASHBOARD_IMAGE =
-  `sameeryadav2005/messagex-dashboard:${DASHBOARD_VERSION}`;
+  `sameeryadav2005/messagex-dashboard-v2:${DASHBOARD_VERSION}`;
 
 const OWNER_LABEL = "com.imsameer.messagex.launcher";
 const OWNER_VALUE = "true";

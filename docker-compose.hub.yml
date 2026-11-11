@@ -53,10 +53,7 @@ services:
     networks: [internal]
 
   admin-init:
-    image: ${BROKER_IMAGE:-messagex-broker:local}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/messagex-broker:${MESSAGEX_BROKER_VERSION:?Set MESSAGEX_BROKER_VERSION}
     restart: "no"
     command: ["node", "apps/broker/scripts/bootstrap-admin.mjs"]
     environment:

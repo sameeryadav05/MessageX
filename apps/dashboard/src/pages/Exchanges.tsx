@@ -149,7 +149,7 @@ export default function Exchanges() {
 
       <Panel title="Bindings" subtitle={`${bindings.length} routing relationship(s)`}>
         <div className="tablewrap"><table><thead><tr><th>Exchange</th><th>Routing key</th><th>Queue</th><th>Actions</th></tr></thead><tbody>
-          {bindings.map((binding) => <tr key={binding.id}><td>{binding.exchangeName}</td><td><code>{binding.routingKey || "(empty)"}</code></td><td><b>{binding.queueName}</b></td><td><button className="icon-action danger-action" title="Remove binding" onClick={() => void handleDeleteBinding({ exchangeName: binding.exchangeName, queueName: binding.queueName, routingKey: binding.routingKey })} disabled={busy !== ""}><Trash2 size={14} /></button></td></tr>)}
+          {bindings.map((binding) => <tr key={binding.id}><td>{binding.exchangeName}</td><td><code>{binding.routingKey || "(empty)"}</code></td><td><b>{binding.queueName}</b></td><td><button className="icon-action danger-action" title="Remove binding" onClick={() => void handleDeleteBinding({ exchangeName: binding.exchangeName, queueName: binding.queueName, routingKey: binding.routingKey, arguments: binding.arguments })} disabled={busy !== ""}><Trash2 size={14} /></button></td></tr>)}
           {!bindings.length && <tr><td colSpan={4} className="empty">No bindings found.</td></tr>}
         </tbody></table></div>
       </Panel>

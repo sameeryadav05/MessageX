@@ -1092,3 +1092,97 @@ td code {
   place-items: center;
   cursor: pointer;
 }
+
+/* Dashboard management forms and mutation feedback */
+.management-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+.management-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #aab7c7;
+  font-size: 10px;
+  font-weight: 600;
+}
+.management-form input:not([type="checkbox"]),
+.management-form select,
+.management-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #354253;
+  border-radius: 7px;
+  background: #121923;
+  color: #e6edf6;
+  padding: 10px 11px;
+  outline: none;
+  font: inherit;
+  font-size: 11px;
+}
+.management-form textarea {
+  resize: vertical;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.management-form input:focus,
+.management-form select:focus,
+.management-form textarea:focus {
+  border-color: #6599e8;
+  box-shadow: 0 0 0 2px #6599e822;
+}
+.management-form .form-wide { grid-column: 1 / -1; }
+.management-form .check-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+}
+.management-form .check-label input { accent-color: #5594ed; }
+.optional { color: #718198; font-weight: 400; }
+.form-actions { display: flex; justify-content: flex-end; grid-column: 1 / -1; }
+.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #477fc9;
+  border-radius: 7px;
+  background: #2e69b5;
+  color: #fff;
+  padding: 9px 13px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.primary:hover { background: #397bd0; }
+.primary:disabled { opacity: .55; cursor: not-allowed; }
+.success {
+  padding: 10px 12px;
+  background: #172a23;
+  color: #9bd8b8;
+  border: 1px solid #315b48;
+  border-radius: 7px;
+  font-size: 11px;
+}
+.icon-action {
+  display: inline-grid;
+  place-items: center;
+  width: 29px;
+  height: 28px;
+  border: 1px solid #354253;
+  border-radius: 6px;
+  background: #1a2431;
+  color: #aab9cb;
+  cursor: pointer;
+}
+.icon-action:disabled { opacity: .35; cursor: not-allowed; }
+.danger-action { color: #e89a8b; border-color: #593a37; }
+.danger-action:hover:not(:disabled) { background: #382522; border-color: #925447; }
+@media(max-width:650px) {
+  .management-form { grid-template-columns: 1fr; }
+  .management-form .form-wide,
+  .management-form .form-actions { grid-column: auto; }
+}

@@ -44,6 +44,7 @@ export class MessageX extends EventEmitter {
   private closing = false;
   private connected = false;
   private authenticated = false;
+  private connectPromise: Promise<void> | null = null;
 
   readonly queue: {
     declare: (options: QueueDeclareOptions) => Promise<DeclareQueueResult>;
@@ -130,9 +131,21 @@ export class MessageX extends EventEmitter {
   }
 
   async connect(): Promise<void> {
+    if (this.isConnected && this.authenticated) return;
+    if (this.connectPromise) return this.connectPromise;
+
+    const attempt = this.establishConnection();
+    this.connectPromise = attempt;
+    try {
+      await attempt;
+    } finally {
+      if (this.connectPromise === attempt) this.connectPromise = null;
+    }
+  }
+
+  private async establishConnection(): Promise<void> {
     if (this.isConnected) {
-      if (!this.authenticated) throw new MessageXConnectionError("Socket is connected but authentication is incomplete");
-      return;
+      throw new MessageXConnectionError("Socket is connected but authentication is incomplete");
     }
 
     this.closing = false;
@@ -193,6 +206,7 @@ export class MessageX extends EventEmitter {
     this.authenticated = false;
     this.connected = false;
     this.consumers.clear();
+    this.pendingConsumersByQueue.clear();
 
     if (this.socket && !this.socket.destroyed) {
       const socket = this.socket;
@@ -264,8 +278,11 @@ export class MessageX extends EventEmitter {
     command: string,
     payload: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
-    if (!this.socket || this.socket.destroyed) {
+    if (!this.socket || this.socket.destroyed || !this.connected) {
       throw new MessageXConnectionError("Not connected to MessageX. Call connect() first.");
+    }
+    if (command !== "CONNECT" && command !== "AUTH" && !this.authenticated) {
+      throw new MessageXConnectionError("MessageX client is not authenticated. Await connect() before sending commands.");
     }
 
     const requestId = randomUUID();
@@ -389,6 +406,8 @@ export class MessageX extends EventEmitter {
     this.authenticated = false;
     this.socket = null;
     this.decoder.reset();
+    this.consumers.clear();
+    this.pendingConsumersByQueue.clear();
     this.rejectPending(new MessageXConnectionError("Connection to MessageX was closed"));
     if (!this.closing && wasConnected) this.emit("disconnect");
   }
@@ -404,6 +423,8 @@ export class MessageX extends EventEmitter {
   private destroySocket(): void {
     this.connected = false;
     this.authenticated = false;
+    this.consumers.clear();
+    this.pendingConsumersByQueue.clear();
     this.rejectPending(new MessageXConnectionError("MessageX connection was terminated"));
     if (this.socket && !this.socket.destroyed) this.socket.destroy();
     this.socket = null;

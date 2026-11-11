@@ -1,4 +1,3 @@
-
 {
   "name": "messagex",
   "version": "1.0.0",
@@ -24,7 +23,8 @@
     "esbuild@0.28.2": true
   },
   "dependencies": {
-    "dotenv": "^18.0.9"
+    "dotenv": "^18.0.9",
+    "messagex-client": "^0.1.0"
   },
   "devDependencies": {
     "@types/dotenv": "^6.1.1"

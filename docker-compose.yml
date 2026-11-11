@@ -80,3 +80,4 @@ networks:
 
 volumes:
   messagex_postgres_data:
+    name: messagex_local_postgres_data

@@ -167,6 +167,60 @@ export async function getConnections(): Promise<BrokerConnection[]> {
   return (await api.get("/api/connections")).data.connections ?? [];
 }
 
+export interface CreateQueueInput {
+  name: string;
+  durable?: boolean;
+  autoDelete?: boolean;
+  maxDeliveryCount?: number;
+  deadLetterQueue?: string;
+}
+
+export interface CreateExchangeInput {
+  name: string;
+  type: "direct" | "fanout" | "topic" | "headers";
+  durable?: boolean;
+}
+
+export interface CreateBindingInput {
+  exchangeName: string;
+  queueName: string;
+  routingKey?: string;
+  arguments?: Record<string, unknown>;
+}
+
+export async function createQueue(input: CreateQueueInput): Promise<void> {
+  await api.post("/api/queues", input);
+}
+
+export async function deleteQueue(name: string): Promise<void> {
+  await api.delete(`/api/queues/${encodeURIComponent(name)}`);
+}
+
+export async function createExchange(input: CreateExchangeInput): Promise<void> {
+  await api.post("/api/exchanges", input);
+}
+
+export async function deleteExchange(name: string): Promise<void> {
+  await api.delete(`/api/exchanges/${encodeURIComponent(name)}`);
+}
+
+export async function createBinding(input: CreateBindingInput): Promise<void> {
+  await api.post("/api/bindings", input);
+}
+
+export async function deleteBinding(input: CreateBindingInput): Promise<void> {
+  await api.delete("/api/bindings", { data: input });
+}
+
+export async function publishMessage(input: {
+  exchangeName: string;
+  routingKey?: string;
+  message: unknown;
+  headers?: Record<string, unknown>;
+}): Promise<{ exchangeName: string; routedQueues: number }> {
+  return (await api.post("/api/publish", input)).data.result;
+}
+
 export async function getBasicHealth() {
   return (await api.get("/health")).data;
 }

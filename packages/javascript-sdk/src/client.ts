@@ -78,7 +78,7 @@ export class MessageX extends EventEmitter {
 
     this.queue = {
       declare: async (input) => {
-        const payload = await this.request("QUEUE_DECLARE", input);
+        const payload = await this.request("QUEUE_DECLARE", { ...input });
         return payload as unknown as DeclareQueueResult;
       },
       delete: async (queueName) => {
@@ -89,7 +89,7 @@ export class MessageX extends EventEmitter {
 
     this.exchange = {
       declare: async (input) => {
-        const payload = await this.request("EXCHANGE_DECLARE", input);
+        const payload = await this.request("EXCHANGE_DECLARE", { ...input });
         return payload as unknown as DeclareExchangeResult;
       },
       delete: async (exchangeName) => {

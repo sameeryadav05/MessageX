@@ -1,0 +1,185 @@
+---
+title: JavaScript / TypeScript SDK
+description: Install messagex-client and integrate Node.js applications with a MessageX broker.
+---
+
+The official MessageX JavaScript / TypeScript client is published on npm as **`messagex-client`**. The package is distributed as ECMAScript modules with TypeScript declaration files.
+
+<Callout type="info">
+  **Runtime:** Node.js 20 or newer. The SDK uses Node's TCP socket API and is not a browser SDK.
+</Callout>
+
+## Installation
+
+```bash
+npm install messagex-client
+```
+
+Package links:
+
+- [npm package](https://www.npmjs.com/package/messagex-client)
+- [SDK source in GitHub](https://github.com/sameeryadav05/MessageX/tree/main/packages/javascript-sdk)
+
+## Connect to the broker
+
+Start MessageX first. With the standard Docker deployment, the broker TCP endpoint is available at `localhost:5678`.
+
+```js
+import { MessageX } from 'messagex-client';
+
+const client = new MessageX({
+  host: process.env.MESSAGEX_HOST ?? '127.0.0.1',
+  port: Number(process.env.MESSAGEX_PORT ?? 5678),
+  username: process.env.MESSAGEX_USER,
+  password: process.env.MESSAGEX_PASSWORD,
+});
+
+await client.connect();
+
+console.log('Connected:', client.isConnected);
+console.log('Authenticated:', client.isAuthenticated);
+```
+
+The constructor requires `host`, `username`, and `password`. The port defaults to `5678`.
+
+## Declare an exchange and queue
+
+```ts
+await client.exchange.declare({
+  name: 'orders.exchange',
+  type: 'direct',
+  durable: true,
+});
+
+await client.queue.declare({
+  name: 'orders',
+  durable: true,
+});
+
+await client.exchange.bind({
+  exchangeName: 'orders.exchange',
+  queueName: 'orders',
+  routingKey: 'orders.created',
+});
+```
+
+Supported exchange types are `direct`, `fanout`, `topic`, and `headers`.
+
+## Publish a message
+
+```ts
+const result = await client.publish({
+  exchangeName: 'orders.exchange',
+  routingKey: 'orders.created',
+  message: {
+    orderId: 'ORD-1001',
+    amount: 2500,
+    status: 'created',
+  },
+  headers: {
+    source: 'checkout-service',
+  },
+});
+
+console.log('Published:', result);
+console.log('Matched queues:', result.routedQueues);
+```
+
+Message bodies must be JSON-serializable values.
+
+## Consume and acknowledge
+
+```ts
+const subscription = await client.consume({
+  queueName: 'orders',
+  onMessage: async (message) => {
+    try {
+      console.log('Received:', message.body);
+      await processOrder(message.body);
+      await message.ack();
+    } catch (error) {
+      console.error('Processing failed:', error);
+      await message.nack({ requeue: true });
+    }
+  },
+});
+
+// On application shutdown:
+await subscription.cancel();
+await client.close();
+```
+
+The callback can be synchronous or asynchronous. Always settle a delivery using `ack()` or `nack()`. If the callback throws or rejects, the SDK emits `consumerError`; it does not automatically acknowledge or reject the message.
+
+The current broker uses prefetch count 1 per consumer connection and queue.
+
+## Client options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `host` | `string` | Required | Broker hostname or IP address |
+| `port` | `number` | `5678` | Broker TCP port |
+| `username` | `string` | Required | Broker username |
+| `password` | `string` | Required | Broker password |
+| `clientName` | `string` | `messagex-node-client` | Client identifier |
+| `connectTimeout` | `number` | `10000` | Connection timeout in milliseconds |
+| `requestTimeout` | `number` | `15000` | Command timeout in milliseconds |
+| `maxFrameSize` | `number` | `1048576` | Maximum frame payload size in bytes |
+
+## Common client methods
+
+| API | Purpose |
+| --- | --- |
+| `new MessageX(options)` | Create a client |
+| `client.connect()` | Open the TCP connection and perform CONNECT/AUTH |
+| `client.close()` | Close the socket and clear local consumer state |
+| `client.queue.declare(options)` | Declare a queue |
+| `client.queue.delete(name)` | Delete a queue |
+| `client.exchange.declare(options)` | Declare an exchange |
+| `client.exchange.bind(options)` | Bind a queue to an exchange |
+| `client.exchange.unbind(options)` | Remove a binding |
+| `client.publish(options)` | Publish a message |
+| `client.consume(options)` | Subscribe to a queue |
+
+A delivery includes `consumerTag`, `queueName`, `messageId`, `deliveryTag`, `body`, `headers`, `routingKey`, `deliveryCount`, and `createdAt`, as well as `ack()` and `nack({ requeue })`.
+
+## Events
+
+The SDK extends Node.js `EventEmitter`. The documented events include:
+
+- `connect`, `disconnect`, and `close` for connection lifecycle.
+- `message` for delivered messages.
+- `event` for other broker events.
+- `warning` and `error` for connection/protocol problems.
+- `consumerError` when an application message callback throws or rejects.
+
+Attach an `error` listener when you want to handle emitted errors using Node's EventEmitter convention.
+
+## Error types
+
+The package exports:
+
+- `MessageXError` — base SDK error.
+- `MessageXConnectionError` — connection lifecycle and socket errors.
+- `MessageXTimeoutError` — connection or command timeout.
+- `MessageXBrokerError` — broker-rejected command; includes a `code` property.
+
+## Connection lifecycle and limitations
+
+The SDK does not automatically reconnect or restore subscriptions. Handle `disconnect` and implement reconnection and subscription recovery in your application when required.
+
+The current TCP protocol does not provide TLS encryption. Use a private network, VPN, SSH tunnel, and restrictive firewall rules when connecting to a remote broker. Do not send credentials or message data across untrusted networks.
+
+The SDK currently does not provide browser/WebSocket transport, TLS transport, transactions, batch publishing, or management HTTP API methods.
+
+## Complete examples and tests
+
+See the repository's `examples` directory and [SDK README](https://github.com/sameeryadav05/MessageX/blob/main/packages/javascript-sdk/README.md) for further examples.
+
+From the repository root:
+
+```bash
+npm install
+npm run build:sdk
+npm run test:sdk
+```

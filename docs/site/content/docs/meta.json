@@ -1,0 +1,13 @@
+{
+  "title": "MessageX",
+  "pages": [
+    "index",
+    "getting-started",
+    "architecture",
+    "sdk",
+    "configuration",
+    "deployment",
+    "reference",
+    "development"
+  ]
+}

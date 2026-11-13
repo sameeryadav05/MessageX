@@ -1,0 +1,66 @@
+---
+title: Broker internals
+description: How TCP connections, protocol parsing, commands, routing, consumers, and persistence fit together.
+---
+
+The broker implementation lives in `apps/broker/src`. Its main runtime is assembled by `TcpServer`, `ClientConnection`, `CommandHandler`, and `ConsumerManager`.
+
+<ArchitectureDiagram variant="broker" />
+
+## 1. TCP listener and connection lifecycle
+
+`TcpServer` creates a Node.js TCP server. For each accepted socket it creates a `ClientConnection`, registers it with `ConnectionManager`, and supplies callbacks for validated protocol messages and socket closure.
+
+A `ClientConnection`:
+
+- Assigns an internal connection identifier.
+- Holds a `FrameDecoder` for the socket's incoming byte stream.
+- Parses each complete frame through `ProtocolParser`.
+- Sends outgoing messages using `FrameEncoder`.
+- Tracks the registered client name and authenticated username.
+- Resets its decoder and invokes the close callback when the socket closes.
+
+The connection manager tracks active connection objects. A disconnect also triggers consumer cleanup and in-flight message recovery.
+
+## 2. Protocol and validation
+
+The protocol layer converts TCP chunks into complete frames, decodes the UTF-8 JSON payload, parses the message envelope, and validates its schema before dispatch.
+
+See [Protocol and framing](/docs/architecture/protocol) for the wire format and message shapes.
+
+## 3. Command dispatch
+
+`CommandHandler` maps command names to dedicated handler functions. The current dispatch table includes:
+
+- `CONNECT` and `AUTH`
+- `QUEUE_DECLARE` and `QUEUE_DELETE`
+- `EXCHANGE_DECLARE` and `EXCHANGE_DELETE`
+- `BIND` and `UNBIND`
+- `PUBLISH` and `CONSUME`
+- `ACK`, `NACK`, and `CANCEL`
+
+The command handler allows only CONNECT and AUTH before a connection is authenticated. Other commands return an authentication-required response.
+
+## 4. Routing and storage
+
+The publish path looks up the exchange, reads its bindings, evaluates routing rules, and inserts one message row for each unique destination queue. The database work is performed inside a transaction.
+
+The message repository also owns message claiming, acknowledgement, release, retry-limit evaluation, dead-letter routing, timeout recovery, and disconnect recovery.
+
+## 5. Consumer dispatch
+
+`ConsumerManager` maintains in-memory subscriptions and dispatch state. It chooses an eligible subscriber using round-robin ordering for a queue.
+
+The current broker implementation enforces one unacknowledged message per connection-and-queue pair (prefetch = 1). The database claim uses `FOR UPDATE SKIP LOCKED` to claim a ready row without allowing concurrent workers to claim the same row.
+
+## 6. Management HTTP server
+
+The broker starts its HTTP server alongside the TCP listener. The dashboard communicates with this HTTP surface; application message producers and consumers use the TCP protocol.
+
+## Source map
+
+- [TCP server](https://github.com/sameeryadav05/MessageX/blob/main/apps/broker/src/server/tcp.server.ts)
+- [Client connection](https://github.com/sameeryadav05/MessageX/blob/main/apps/broker/src/connection/client-connection.ts)
+- [Command handler](https://github.com/sameeryadav05/MessageX/blob/main/apps/broker/src/commands/command.handler.ts)
+- [Message repository](https://github.com/sameeryadav05/MessageX/blob/main/apps/broker/src/messages/message.repository.ts)
+- [Consumer manager](https://github.com/sameeryadav05/MessageX/blob/main/apps/broker/src/consumers/consumer.manager.ts)

@@ -1,0 +1,73 @@
+---
+title: Environment variables
+description: Configure the repository Compose stack, broker process, and launcher credentials.
+---
+
+MessageX has several environment-variable scopes. Keep them distinct: Compose interpolation variables, variables passed into the broker container, and launcher bootstrap variables are not interchangeable.
+
+## 1. Variables in the repository `.env`
+
+Start by copying `.env.compose.example` to `.env`. The Compose file reads these values:
+
+| Variable | Required | Default / example | Purpose |
+| --- | --- | --- | --- |
+| `POSTGRES_PASSWORD` | Yes | Replace example | PostgreSQL password; also used in the broker connection URL |
+| `MESSAGEX_ADMIN_USERNAME` | Yes | `admin` in example | Initial administrator username for `admin-init` |
+| `MESSAGEX_ADMIN_PASSWORD` | Yes | Replace example | Initial administrator password for `admin-init` |
+| `TCP_BIND_ADDRESS` | No | `0.0.0.0` | Host address on which Docker publishes the broker port |
+| `TCP_PORT` | No | `5678` | Host-side broker TCP port |
+| `DASHBOARD_BIND_ADDRESS` | No | `0.0.0.0` | Host address on which Docker publishes the dashboard |
+| `DASHBOARD_PORT` | No | `15672` | Host-side dashboard HTTP port |
+| `BROKER_IMAGE` | No | `messagex-broker:local` | Broker image used by Compose |
+| `DASHBOARD_IMAGE` | No | `messagex-dashboard:local` | Dashboard image used by Compose |
+
+The example file uses placeholder passwords. Replace them before startup. Do not commit `.env`.
+
+## 2. Variables passed to the broker container
+
+The current Compose file sets the following values inside the broker service:
+
+| Variable | Compose value | Purpose |
+| --- | --- | --- |
+| `NODE_ENV` | `production` | Runtime environment |
+| `HOST` | `0.0.0.0` | Bind address inside the container |
+| `HTTP_PORT` | `3000` | Broker HTTP server port |
+| `TCP_PORT` | `5678` | Broker TCP listener port |
+| `DATABASE_URL` | Built from Compose DB credentials | PostgreSQL connection string |
+| `ACK_TIMEOUT_SECONDS` | `30` | Maximum age of an in-flight delivery before recovery |
+| `ACK_TIMEOUT_CHECK_INTERVAL_MS` | `5000` | Interval between expired-delivery scans |
+
+The broker source defaults to `HOST=127.0.0.1`, `HTTP_PORT=3000`, `TCP_PORT=5678`, `ACK_TIMEOUT_SECONDS=30`, and `ACK_TIMEOUT_CHECK_INTERVAL_MS=5000` when the corresponding values are not set.
+
+The timeout values must be positive integers.
+
+## 3. PostgreSQL container variables
+
+Compose configures the database service with:
+
+- `POSTGRES_USER=messagex`
+- `POSTGRES_DB=messagex`
+- `POSTGRES_PASSWORD` from the project `.env` file
+
+The database listens on port 5432 inside the Compose network. The Compose file publishes it to `127.0.0.1:5433` on the host for local development access.
+
+## 4. Launcher bootstrap variables
+
+The published launcher quickstart also documents:
+
+- `MESSAGEX_DEFAULT_USER`
+- `MESSAGEX_DEFAULT_PASS`
+
+These initialize the administrator credentials on the launcher's first startup. The README states that the password must be at least 12 characters and that these values do not reset an existing account.
+
+Do not confuse these with `MESSAGEX_ADMIN_USERNAME` and `MESSAGEX_ADMIN_PASSWORD`, which are used by the repository Compose file's one-shot admin initialization service.
+
+## 5. Safe secret handling
+
+- Keep `.env` out of Git.
+- Use unique, randomly generated values for database and administrator credentials.
+- Prefer a secret manager for production deployments.
+- Avoid printing passwords or full connection strings in logs.
+- Rotate credentials through the supported administration workflow; changing an environment variable alone does not necessarily reset an initialized account.
+
+The canonical source for the Compose variable list is [`.env.compose.example`](https://github.com/sameeryadav05/MessageX/blob/main/.env.compose.example).

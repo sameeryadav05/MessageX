@@ -1,0 +1,32 @@
+---
+title: MessageX Documentation
+description: Learn to deploy, integrate, and understand the MessageX self-hosted message broker.
+---
+
+MessageX is a self-hosted messaging platform for asynchronous communication between applications and services. It combines a TCP broker, routing and queue management, PostgreSQL persistence, a browser dashboard, Docker deployment tooling, and an official Node.js client.
+
+Use this documentation to get a broker running, connect an application, understand the internal architecture, and operate the platform responsibly.
+
+## Choose your path
+
+- **New to MessageX?** Start with [Getting started](/docs/getting-started/prerequisites), then follow the [quickstart](/docs/getting-started/quickstart).
+- **Integrating an application?** Install the official [JavaScript / TypeScript SDK](/docs/sdk/javascript).
+- **Understanding internals?** Explore the [system architecture](/docs/architecture/overview) and [message lifecycle](/docs/architecture/message-lifecycle).
+- **Deploying for a team?** Read [Docker deployment](/docs/deployment/docker-images), [environment variables](/docs/configuration/environment-variables), and [production considerations](/docs/deployment/production).
+
+## Platform at a glance
+
+| Component | Responsibility | Default endpoint |
+| --- | --- | --- |
+| Broker TCP listener | Client protocol and messaging commands | `localhost:5678` |
+| Broker HTTP server | Health and management endpoints | `localhost:3000` inside the Compose network |
+| Dashboard | Browser-based administration | `http://localhost:15672` |
+| PostgreSQL | Persistent broker state and message data | `postgres:5432` inside Docker |
+| JavaScript SDK | Node.js application integration over TCP | Broker TCP endpoint |
+| Launcher | Creates and supervises Docker services | Docker container |
+
+## Project status
+
+The repository currently publishes the **JavaScript / TypeScript Node.js SDK** as the npm package `messagex-client`. Python and Java SDKs are not currently published; their pages are marked as planned so readers do not mistake roadmap items for supported packages.
+
+Version information, configuration defaults, and code examples in these docs should be checked against the current repository release before being used in production.

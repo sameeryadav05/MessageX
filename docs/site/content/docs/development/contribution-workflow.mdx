@@ -1,0 +1,50 @@
+---
+title: Contribution workflow
+description: Branch, commit, push, and propose changes without working directly on main.
+---
+
+Use a feature branch for every change.
+
+## 1. Update main
+
+```bash
+git switch main
+git pull --ff-only origin main
+```
+
+## 2. Create a focused branch
+
+```bash
+git switch -c docs/short-description
+```
+
+Use a prefix that reflects the work, such as `docs/`, `feat/`, or `fix/`.
+
+## 3. Make and inspect the change
+
+```bash
+git status
+git diff
+```
+
+Stage only the files related to your change. Avoid `git add .` when local environment files or build output may be present.
+
+## 4. Commit and push
+
+```bash
+git add docs/site
+git commit -m "docs: describe the documentation change"
+git push -u origin docs/short-description
+```
+
+## 5. Open a Pull Request
+
+Open a Pull Request with:
+
+- Base branch: `main`
+- Compare branch: your feature branch
+- A short explanation of the change.
+- Relevant screenshots for UI changes.
+- Build/test results and known limitations.
+
+Do not merge a documentation Pull Request until the docs build and the repository checks have been reviewed.

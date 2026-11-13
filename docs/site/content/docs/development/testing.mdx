@@ -1,0 +1,55 @@
+---
+title: Build and test
+description: Useful root commands for validating changes to MessageX packages.
+---
+
+Run commands from the repository root unless otherwise noted.
+
+## Broker
+
+```bash
+npm run build:broker
+npm run test:broker
+```
+
+The broker workspace also provides a TypeScript type-check command:
+
+```bash
+npm run typecheck --workspace=@messagex/broker
+```
+
+## JavaScript SDK
+
+```bash
+npm run build:sdk
+npm run test:sdk
+```
+
+## Dashboard
+
+```bash
+npm run build:dashboard
+```
+
+The dashboard is a Vite application.
+
+## Documentation site
+
+The docs app has an independent dependency graph:
+
+```bash
+cd docs/site
+npm install
+npm run typecheck
+npm run build
+```
+
+If `npm run build` fails, fix the reported MDX or TypeScript errors before merging. Do not change the root broker or dashboard lockfile to resolve a docs-only dependency issue.
+
+## Suggested validation sequence
+
+1. Run the test suite for the package changed.
+2. Run its production build.
+3. Review `git diff` and `git status`.
+4. Confirm no `.env`, database data, `node_modules`, `.next`, or `.source` files are included.
+5. Push the feature branch and inspect the Pull Request checks.

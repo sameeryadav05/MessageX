@@ -1,0 +1,83 @@
+---
+title: Quickstart
+description: Launch the published MessageX stack with Docker.
+---
+
+The fastest evaluation path uses the MessageX Launcher image. The launcher provisions the broker, dashboard, PostgreSQL service, Docker network, and initial administrator account.
+
+## 1. Start the launcher
+
+The repository README currently references launcher image tag `0.1.8`.
+
+```bash
+docker run -d \
+  --name messagex \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v messagex_launcher_data:/data \
+  sameeryadav2005/messagex-v2:0.1.8
+```
+
+For a first-time installation, you can set the administrator username and password explicitly:
+
+```bash
+docker run -d \
+  --name messagex \
+  --restart unless-stopped \
+  -e MESSAGEX_DEFAULT_USER=admin \
+  -e MESSAGEX_DEFAULT_PASS='ReplaceWithA_StrongPassword123' \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v messagex_launcher_data:/data \
+  sameeryadav2005/messagex-v2:0.1.8
+```
+
+Choose your own password and store it in a secret manager. The password must be at least 12 characters. These variables initialize credentials on first startup; they do not reset an existing account.
+
+> **Security:** The launcher mounts the Docker socket so it can create and manage child containers. Access to the Docker socket is highly privileged. Run the launcher only on a host you trust and protect access to that host.
+
+## 2. Check startup
+
+```bash
+docker ps
+docker logs -f messagex
+```
+
+If credentials were generated automatically, the README documents this command to retrieve them:
+
+```bash
+docker exec messagex cat /data/credentials.txt
+```
+
+## 3. Open the dashboard
+
+| Service | Address |
+| --- | --- |
+| Dashboard | [http://localhost:15672](http://localhost:15672) |
+| Broker TCP | `localhost:5678` |
+
+Use the administrator credentials created during the first startup.
+
+## 4. Connect an application
+
+Install the Node.js client:
+
+```bash
+npm install messagex-client
+```
+
+Then follow the [JavaScript SDK guide](/docs/sdk/javascript) to connect, declare an exchange and queue, publish a message, and consume it.
+
+## Stop the stack
+
+```bash
+docker stop messagex
+docker start messagex
+```
+
+To remove the launcher container without deleting its persistent data volume:
+
+```bash
+docker rm -f messagex
+```
+
+Do not delete the `messagex_launcher_data` volume unless you intentionally want to remove launcher state.

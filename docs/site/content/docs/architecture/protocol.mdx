@@ -1,0 +1,98 @@
+---
+title: TCP protocol and framing
+description: The current version 1 MessageX wire envelope and four-byte length-prefixed JSON frames.
+---
+
+MessageX clients connect to the broker's TCP listener. The current protocol version is **1** and the payload format is UTF-8 JSON.
+
+## Frame format
+
+Every frame consists of:
+
+| Field | Size | Description |
+| --- | ---: | --- |
+| Length prefix | 4 bytes | Unsigned 32-bit big-endian payload length |
+| Payload | 1 byte to 1 MiB | UTF-8 encoded JSON protocol message |
+
+The length prefix does not include its own four bytes. The broker rejects zero-length frames and payloads larger than 1 MiB.
+
+```text
+┌──────────────────────────┬─────────────────────────────────────┐
+│ 4-byte unsigned length   │ UTF-8 JSON payload                   │
+│ Big-endian (network)     │ 1 .. 1,048,576 bytes                 │
+└──────────────────────────┴─────────────────────────────────────┘
+```
+
+## Protocol envelope
+
+There are three message types:
+
+### Command
+
+```json
+{
+  "version": 1,
+  "type": "COMMAND",
+  "command": "QUEUE_DECLARE",
+  "requestId": "request-uuid",
+  "payload": {
+    "name": "orders",
+    "durable": true
+  }
+}
+```
+
+A command contains a command name, a request identifier, and an object payload. The broker validates it before dispatch.
+
+### Response
+
+```json
+{
+  "version": 1,
+  "type": "RESPONSE",
+  "requestId": "request-uuid",
+  "success": true,
+  "payload": {
+    "name": "orders"
+  }
+}
+```
+
+Responses contain the matching request ID. Failed responses contain an `error` object with a `code` and `message`.
+
+### Event
+
+```json
+{
+  "version": 1,
+  "type": "EVENT",
+  "event": "MESSAGE_DELIVERED",
+  "payload": {
+    "queueName": "orders",
+    "deliveryTag": "delivery-uuid"
+  }
+}
+```
+
+Events are broker-originated notifications. Message deliveries use the `MESSAGE_DELIVERED` event.
+
+## Why the decoder keeps a buffer
+
+TCP is a byte stream; one socket `data` callback is not guaranteed to contain exactly one complete application message. A frame can arrive split across chunks, or multiple frames can arrive together.
+
+The decoder therefore:
+
+1. Appends each chunk to its internal buffer.
+2. Reads the four-byte big-endian payload length when enough header bytes exist.
+3. Waits if the full payload has not arrived yet.
+4. Extracts complete payloads and continues in case another frame follows.
+
+## Implementation references
+
+- Broker constants: `apps/broker/src/protocol/protocol.constants.ts`
+- Broker decoder: `apps/broker/src/protocol/frame-decoder.ts`
+- Broker encoder: `apps/broker/src/protocol/frame-encoder.ts`
+- Protocol parser and schema: `apps/broker/src/protocol/protocol.parser.ts`, `protocol.schema.ts`
+- SDK frame implementation: `packages/javascript-sdk/src/frame.ts`
+
+The SDK and broker should be treated as a matched protocol implementation. Do not handcraft wire messages unless you are implementing a compatible client and have tested framing, validation, request correlation, and event handling.

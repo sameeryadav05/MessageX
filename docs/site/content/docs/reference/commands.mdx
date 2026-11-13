@@ -1,0 +1,42 @@
+---
+title: Broker commands
+description: The current command names registered by the MessageX TCP broker.
+---
+
+The broker's `CommandHandler` dispatches protocol commands to dedicated handlers. The currently registered command set is:
+
+| Command | Purpose |
+| --- | --- |
+| `CONNECT` | Register client connection metadata |
+| `AUTH` | Authenticate a client |
+| `QUEUE_DECLARE` | Declare a queue |
+| `QUEUE_DELETE` | Delete a queue |
+| `EXCHANGE_DECLARE` | Declare an exchange |
+| `EXCHANGE_DELETE` | Delete an exchange |
+| `BIND` | Bind a queue to an exchange |
+| `UNBIND` | Remove a queue binding |
+| `PUBLISH` | Publish a message to an exchange |
+| `CONSUME` | Subscribe to a queue |
+| `ACK` | Acknowledge a delivery |
+| `NACK` | Reject a delivery with optional requeue |
+| `CANCEL` | Cancel a consumer subscription |
+
+All commands use the version 1 protocol envelope. See [TCP protocol and framing](/docs/architecture/protocol).
+
+## Authentication gate
+
+The broker allows `CONNECT` and `AUTH` before authentication. Other commands are rejected with `ERR_AUTH_REQUIRED` until authentication succeeds.
+
+## Responses
+
+Responses carry the originating `requestId` and a `success` boolean. A failed response includes an error code and message. The command handler returns `ERR_UNKNOWN_COMMAND` when a command is not registered.
+
+## Source of truth
+
+The implementation is in:
+
+- `apps/broker/src/commands/command.handler.ts`
+- `apps/broker/src/commands/handlers/`
+- `apps/broker/src/protocol/protocol.schema.ts`
+
+This page lists the command names registered by the current source. Consult the handler and Zod schema for exact payload fields and validation rules before implementing a raw protocol client.

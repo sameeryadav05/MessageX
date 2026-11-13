@@ -1,0 +1,64 @@
+---
+title: System architecture
+description: The major services, responsibilities, and communication paths in MessageX.
+---
+
+MessageX is a self-hosted platform composed of a TCP broker, an HTTP management surface, a React dashboard, PostgreSQL persistence, a Node.js SDK, and a Docker launcher.
+
+The broker owns the message path. Application SDKs communicate with it over TCP. The dashboard communicates with the broker's HTTP API. PostgreSQL stores durable broker state and message records.
+
+<ArchitectureDiagram variant="system" />
+
+## Components
+
+| Component | Location in repository | Responsibility |
+| --- | --- | --- |
+| TCP server | `apps/broker/src/server/tcp.server.ts` | Accept sockets and route validated commands |
+| Connection layer | `apps/broker/src/connection` | Track client connections and connection lifecycle |
+| Protocol layer | `apps/broker/src/protocol` | Frame encoding/decoding, parsing, schema validation |
+| Command handlers | `apps/broker/src/commands` | CONNECT, AUTH, queue, exchange, publish, consume, ACK/NACK and cancellation |
+| Exchange routing | `apps/broker/src/routing/routing.ts` | Match bindings and select destination queues |
+| Message repository | `apps/broker/src/messages/message.repository.ts` | Persist, claim, acknowledge, release and recover messages |
+| Consumer manager | `apps/broker/src/consumers/consumer.manager.ts` | Subscriptions, dispatch, prefetch and consumer recovery |
+| HTTP server | `apps/broker/src/server/http.server.ts` | Dashboard-facing management and health endpoints |
+| Dashboard | `apps/dashboard` | Browser-based broker administration |
+| JavaScript SDK | `packages/javascript-sdk` | Node.js client for the MessageX TCP protocol |
+| Launcher | `messagex-launcher` | Docker-based provisioning and service lifecycle |
+
+## Runtime startup order
+
+The broker entry point in `apps/broker/src/server/index.ts`:
+
+1. Connects to PostgreSQL.
+2. Runs database migrations.
+3. Reads host and port configuration.
+4. Starts the HTTP server.
+5. Starts the TCP server.
+6. Schedules periodic expired-delivery recovery.
+7. On shutdown, closes HTTP and TCP listeners, waits for connection cleanup, then closes PostgreSQL.
+
+The Compose deployment sets the broker host to `0.0.0.0` inside its container. The broker source defaults to `127.0.0.1` when `HOST` is not supplied.
+
+## Communication paths
+
+### Application messaging
+
+`Application → messagex-client → TCP → frame decoder → protocol parser → command handler → routing / queue / consumer logic → PostgreSQL`
+
+Broker responses are correlated by `requestId`. Deliveries are emitted as protocol events.
+
+### Dashboard management
+
+`Browser → Dashboard → Broker HTTP API`
+
+The dashboard is not the TCP client SDK. It uses the broker's HTTP management surface.
+
+### Deployment
+
+The launcher manages the container stack through Docker. The repository's Compose file is a separate local-build workflow that defines PostgreSQL, broker, dashboard, and one-shot admin initialization services.
+
+## Explore internals
+
+- [Broker request pipeline](/docs/architecture/broker-internals)
+- [Wire protocol and framing](/docs/architecture/protocol)
+- [Message lifecycle](/docs/architecture/message-lifecycle)

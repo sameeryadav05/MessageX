@@ -1,0 +1,26 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/shadcn.css";
+@import "fumadocs-ui/css/preset.css";
+@import "@xyflow/react/dist/style.css";
+
+:root {
+  --fd-layout-width: 1440px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-feature-settings: "ss01" on, "cv11" on;
+}
+
+/* Keep interactive architecture canvases legible in both themes. */
+.messagex-flow {
+  height: 560px;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--color-fd-border);
+  border-radius: 12px;
+  background: var(--color-fd-card);
+}

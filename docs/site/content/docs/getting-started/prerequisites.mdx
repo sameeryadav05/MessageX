@@ -1,0 +1,39 @@
+---
+title: Prerequisites
+description: Tools and access required to run MessageX or work on the repository.
+---
+
+## Running MessageX
+
+For the Docker-based deployment, install:
+
+- Docker Engine or Docker Desktop with the Compose plugin.
+- A terminal with access to the Docker CLI.
+- Network access to pull the published MessageX images.
+- Host ports `5678/TCP` and `15672/HTTP` available, unless you configure different published ports.
+
+The PostgreSQL service is published on loopback port `5433` by the repository Compose file. It is not required to expose PostgreSQL to the public network.
+
+## Developing MessageX
+
+For broker, dashboard, or SDK development, install:
+
+- Git.
+- Node.js 20 or later for the official JavaScript SDK. Use a current Node.js LTS release for repository development.
+- npm (included with Node.js).
+- Docker Desktop or Docker Engine for PostgreSQL and containerized integration testing.
+- A code editor such as Visual Studio Code.
+
+The documentation application under `docs/site` is independent from the root npm workspaces. Use a current Node.js LTS release compatible with the current Next.js and Fumadocs versions.
+
+## Verify your tools
+
+```powershell
+git --version
+node --version
+npm --version
+docker --version
+docker compose version
+```
+
+On macOS and Linux, the same commands work in Terminal.

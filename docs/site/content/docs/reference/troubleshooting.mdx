@@ -1,0 +1,81 @@
+---
+title: Troubleshooting
+description: Common local installation, Docker, network, and SDK integration issues.
+---
+
+## Docker Compose does not start
+
+Check service state and recent logs:
+
+```bash
+docker compose ps
+docker compose logs --tail=200 postgres broker dashboard admin-init
+```
+
+Confirm that `.env` exists and contains non-placeholder values for `POSTGRES_PASSWORD`, `MESSAGEX_ADMIN_USERNAME`, and `MESSAGEX_ADMIN_PASSWORD`.
+
+The broker waits for PostgreSQL's health check. If PostgreSQL is not healthy, inspect its logs and confirm the password and volume state.
+
+## Port is already allocated
+
+Another process may already use host port 5678 or 15672. Change `TCP_PORT` or `DASHBOARD_PORT` in `.env`, then recreate the stack:
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+Do not use `docker compose down -v` to resolve a port conflict; that also deletes named volumes.
+
+## Dashboard does not load
+
+Check that the dashboard container is running and inspect its logs:
+
+```bash
+docker compose ps dashboard
+docker compose logs --tail=100 dashboard
+```
+
+The Compose file publishes the dashboard on the configured host port (15672 by default).
+
+## SDK cannot connect
+
+Confirm:
+
+- The broker container is healthy.
+- The broker TCP port is published and reachable from the application host.
+- The SDK is using the right hostname for its network context. From another container, `localhost` refers to that container, not the broker container.
+- The username and password are valid.
+- The broker TCP endpoint is reachable through the host or private network firewall.
+
+The SDK requires Node.js 20 or newer.
+
+## Connection drops after a consumer starts
+
+The SDK does not automatically reconnect or restore subscriptions. Handle the SDK's `disconnect` event, reconnect deliberately, and recreate subscriptions as needed.
+
+Unacknowledged messages associated with a closed broker connection pass through the broker's disconnect recovery path.
+
+## Messages are delivered again
+
+Redelivery can occur after NACK with requeue enabled, consumer disconnect, or ACK timeout recovery. Design message processing to tolerate duplicates and make external side effects idempotent when possible.
+
+See [message lifecycle](/docs/architecture/message-lifecycle) for retry and dead-letter behavior.
+
+## Documentation app fails
+
+From the docs directory:
+
+```bash
+cd docs/site
+npm install
+npm run dev
+```
+
+If generated content types are missing, run:
+
+```bash
+npx fumadocs-mdx
+```
+
+The `.source` directory is generated and should not be committed.

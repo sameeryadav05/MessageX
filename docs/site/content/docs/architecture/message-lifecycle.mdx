@@ -1,0 +1,69 @@
+---
+title: Message lifecycle
+description: Follow a message from publish through routing, persistence, delivery, and settlement.
+---
+
+<ArchitectureDiagram variant="lifecycle" />
+
+## 1. Publish
+
+The producer calls `client.publish()`. The SDK sends a `PUBLISH` command over TCP with the exchange name, routing key, message body, and headers.
+
+The broker's publish handler delegates to `publishMessage()` in `apps/broker/src/messages/message.repository.ts`.
+
+## 2. Route
+
+The repository opens a PostgreSQL transaction, loads the target exchange and its bindings, then calls `routeMessage()`.
+
+Supported exchange types are:
+
+- **Direct:** exact routing-key equality.
+- **Fanout:** every binding matches.
+- **Topic:** dot-separated words with `*` matching exactly one word and `#` matching zero or more words.
+- **Headers:** compares binding arguments against message headers. `x-match: all` requires every criterion; `x-match: any` requires at least one.
+
+The routing function returns unique queue IDs. A message row is inserted for each matched queue and the transaction is committed.
+
+If the exchange does not exist, the publish fails instead of being routed.
+
+## 3. Claim and deliver
+
+When a queue has active consumers, `ConsumerManager` selects an eligible subscriber in round-robin order.
+
+The repository claims the oldest ready message using a database update with `FOR UPDATE SKIP LOCKED`. The row changes from `ready` to `in_flight`, receives a delivery tag and connection ID, records a delivery timestamp, and increments its delivery count.
+
+The broker sends a `MESSAGE_DELIVERED` event containing the queue, body, headers, routing key, delivery tag, delivery count, and creation timestamp.
+
+The current broker enforces prefetch = 1 per connection and queue: a consumer connection cannot have more than one unacknowledged message from a given queue.
+
+## 4. Acknowledge
+
+When processing succeeds, the application calls `message.ack()`. The broker validates the delivery tag against the connection and removes the matching in-flight message row.
+
+An ACK settles the delivery; it is not an application-level transaction with the producer.
+
+## 5. Reject and retry
+
+When processing fails, the application can call:
+
+```ts
+await message.nack({ requeue: true });
+```
+
+With requeue enabled, the broker checks the queue's maximum delivery count:
+
+- If the retry limit has not been reached, the message returns to `ready`.
+- If the retry limit has been reached and a dead-letter queue is configured, the existing message is moved to that queue and death metadata is added to headers.
+- If the retry limit has been reached and no dead-letter queue is configured, the message is retained with status `dead`.
+
+A negative acknowledgement with `requeue: false` deletes the message.
+
+## 6. Timeout and disconnect recovery
+
+The broker periodically scans for in-flight deliveries older than `ACK_TIMEOUT_SECONDS` and releases them through the same retry/DLQ logic. The Compose configuration sets the timeout to 30 seconds and checks every 5 seconds.
+
+When a TCP connection closes, the consumer manager removes its subscriptions and releases messages still in flight for that connection. Other active consumers can then receive recovered work.
+
+## Delivery notes
+
+An application should explicitly settle deliveries. The SDK does not automatically ACK or NACK just because the callback returns or throws. See [JavaScript consumer guide](/docs/sdk/javascript#consume-and-acknowledge).

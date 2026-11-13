@@ -1,0 +1,29 @@
+---
+title: Ports and endpoints
+description: Default service ports in the MessageX broker and repository Docker Compose deployment.
+---
+
+| Service | Container / internal port | Default host port | Protocol |
+| --- | ---: | ---: | --- |
+| Broker TCP listener | `5678` | `5678` | TCP |
+| Broker HTTP server | `3000` | Not published by default in Compose | HTTP |
+| Dashboard | Nginx port `80` | `15672` | HTTP |
+| PostgreSQL | `5432` | `5433` bound to loopback | PostgreSQL |
+
+## Configuration
+
+The Compose file allows the host-side broker port and dashboard port to be changed with `TCP_PORT` and `DASHBOARD_PORT`. Host binding addresses are controlled by `TCP_BIND_ADDRESS` and `DASHBOARD_BIND_ADDRESS`.
+
+The broker listens on `TCP_PORT` and `HTTP_PORT` inside its container. Compose currently configures those as `5678` and `3000`.
+
+PostgreSQL is published as `127.0.0.1:5433:5432` for local development access. Keep it bound to loopback unless you have a deliberate secured remote database access design.
+
+## Health check
+
+The Compose broker health check requests:
+
+```text
+http://127.0.0.1:3000/health/ready
+```
+
+The dashboard service waits for the broker readiness check before starting.

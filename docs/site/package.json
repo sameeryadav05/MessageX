@@ -1,0 +1,31 @@
+{
+  "name": "@messagex/docs",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "fumadocs-mdx",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xyflow/react": "12.12.1",
+    "fumadocs-core": "16.19.0",
+    "fumadocs-mdx": "15.6.1",
+    "fumadocs-ui": "16.19.0",
+    "next": "16.4.6",
+    "next-themes": "0.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.0",
+    "@types/mdx": "2.0.13",
+    "@types/node": "22.13.10",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "4.1.0",
+    "typescript": "^5.7.3"
+  }
+}

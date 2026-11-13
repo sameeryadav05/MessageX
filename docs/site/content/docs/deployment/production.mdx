@@ -1,0 +1,54 @@
+---
+title: Production considerations
+description: Operational and security checks before exposing a MessageX deployment to users.
+---
+
+These are deployment precautions, not a claim that MessageX currently provides a highly available or clustered deployment mode.
+
+## Network security
+
+The current SDK documentation states that the TCP protocol does not provide TLS encryption. Until TLS is supported end-to-end:
+
+- Keep the broker TCP port on a trusted private network.
+- Use a VPN, SSH tunnel, or private network for remote application access.
+- Restrict inbound TCP access with host and cloud firewall rules.
+- Do not expose broker credentials or message contents over untrusted networks.
+- Avoid publishing PostgreSQL to a public interface.
+
+The repository Compose file binds PostgreSQL's host port to `127.0.0.1:5433`, while the broker and dashboard host bindings are configurable.
+
+## Launcher privilege
+
+The launcher mounts `/var/run/docker.sock` so it can provision and supervise containers. Access to the Docker socket can grant extensive control over the Docker host. Treat the launcher as a privileged service, restrict who can reach its host, and do not run it on an untrusted shared machine.
+
+## Persistence and backups
+
+The repository Compose configuration uses a named PostgreSQL volume. Ensure that your production deployment has:
+
+- A tested PostgreSQL backup and restore process.
+- Persistent storage appropriate for the workload.
+- Monitoring for disk usage and database health.
+- A documented upgrade and rollback procedure.
+- A planned retention policy for logs and operational data.
+
+A Docker volume is persistent storage, not a backup.
+
+## Credentials
+
+Use long unique secrets and keep them outside source control. Limit access to administrator credentials. The launcher bootstrap variables are first-start initialization values; changing them later should not be treated as a password rotation procedure.
+
+## Delivery semantics
+
+Applications must settle deliveries with ACK or NACK. The broker has timeout and disconnect recovery paths, but application side effects are not automatically coordinated with message acknowledgement. Design consumers to tolerate duplicate processing and make handlers idempotent where possible.
+
+See [message lifecycle](/docs/architecture/message-lifecycle) for the exact current implementation.
+
+## Before going live
+
+- Pin images to explicit release tags and preferably digests.
+- Restrict TCP and dashboard access.
+- Back up PostgreSQL and test restoration.
+- Set and protect administrator credentials.
+- Test consumer crash, disconnect, retry, and DLQ scenarios.
+- Monitor broker, dashboard, host, and database health.
+- Document the recovery and upgrade runbook.

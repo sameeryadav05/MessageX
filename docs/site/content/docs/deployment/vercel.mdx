@@ -1,0 +1,100 @@
+---
+title: Deploy documentation to Vercel
+description: Deploy the Next.js and Fumadocs documentation app from docs/site and connect messagex.imsameer.me.
+---
+
+The documentation website is a standalone Next.js application inside the MessageX monorepo at `docs/site`. Deploy that directory as the Vercel project root. This deploys the documentation website only; it does not deploy the TCP broker, PostgreSQL database, Docker launcher, or React broker dashboard.
+
+## 1. Import the GitHub repository
+
+1. Sign in to [Vercel](https://vercel.com/).
+2. Choose **Add New → Project**.
+3. Import `sameeryadav05/MessageX` from GitHub.
+4. Configure the project settings before deploying.
+
+## 2. Configure the project
+
+Use these settings:
+
+| Setting | Value |
+| --- | --- |
+| Framework preset | Next.js |
+| Root Directory | `docs/site` |
+| Install Command | `npm install` |
+| Build Command | `npm run build` |
+| Output Directory | Leave as Vercel's Next.js default |
+| Node.js Version | 22.x or a version supported by the pinned Next.js release |
+
+Do not set the root directory to the repository root. The docs app has its own `package.json` and lockfile under `docs/site`.
+
+The app's postinstall script runs `fumadocs-mdx` to generate the content collection during installation. Do not disable install scripts required by the build.
+
+## 3. Choose the deployment branch
+
+For the initial deployment, select `docs/nextjs-fumadocs` as the Production Branch if you want this branch to serve the custom domain before merging it elsewhere.
+
+Vercel can also create Preview Deployments for other branches and pull requests. Keep the production branch choice deliberate: a deployment from `main` will not contain documentation changes that exist only on `docs/nextjs-fumadocs`.
+
+Once the documentation branch is reviewed and merged into the branch you want to use for production, update the Vercel Production Branch setting accordingly.
+
+## 4. Deploy and inspect the build
+
+Click **Deploy** and wait for the build to finish. Open the generated Vercel URL and verify:
+
+- The homepage loads.
+- `/docs/getting-started/quickstart` loads directly on refresh.
+- Search opens and its result text is readable.
+- Light and dark theme switching works.
+- Architecture diagrams fit the viewport and their controls work.
+- `/robots.txt` and `/sitemap.xml` return valid responses.
+
+If the build fails, inspect the Vercel build log. Run the same checks locally from `docs/site`:
+
+```bash
+npm ci
+npm run typecheck
+npm run build
+```
+
+## 5. Connect messagex.imsameer.me
+
+In the Vercel project:
+
+1. Open **Settings → Domains**.
+2. Add `messagex.imsameer.me`.
+3. Vercel will display the DNS record or records required for your domain.
+4. Open the DNS management panel at the provider that hosts `imsameer.me`.
+5. Create the exact record Vercel shows for the `messagex` subdomain.
+6. Return to Vercel and wait for domain verification and TLS certificate provisioning.
+
+DNS values can differ by account, domain provider, and Vercel configuration. **Use the exact values shown in your Vercel Domains panel** rather than copying an IP or CNAME value from an unrelated tutorial.
+
+Do not change the apex `imsameer.me` records if you only intend to connect the `messagex` subdomain.
+
+## 6. Verify canonical URLs and HTTPS
+
+The app is configured with the canonical site origin:
+
+```text
+https://messagex.imsameer.me
+```
+
+After DNS and TLS are active, verify:
+
+- `https://messagex.imsameer.me` redirects or loads over HTTPS.
+- A documentation page's canonical URL uses the same host and its own path.
+- Open Graph metadata uses the canonical host.
+- `https://messagex.imsameer.me/robots.txt` references the sitemap.
+- `https://messagex.imsameer.me/sitemap.xml` lists the public documentation URLs.
+
+If you choose a different production hostname, update the `siteUrl` constants in `app/layout.tsx`, `app/sitemap.ts`, and `app/robots.ts` before deploying.
+
+## 7. Continuous deployment
+
+After the GitHub repository is connected, Vercel automatically creates deployments when commits are pushed to configured branches. A pull request can receive a Preview Deployment so you can review documentation changes before promoting them to production.
+
+Keep the docs website changes within `docs/site`. The deployment should not require changing the broker's Docker Compose setup or application runtime.
+
+## Deployment boundary
+
+Vercel hosts this static/server-rendered documentation website. It is not the hosting target for the MessageX TCP broker or PostgreSQL service. Run those services using the documented Docker deployment on infrastructure that supports persistent containers, TCP networking, and persistent storage.

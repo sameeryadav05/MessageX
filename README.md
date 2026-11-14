@@ -463,6 +463,7 @@ Please include reproduction steps for bugs and describe any protocol or compatib
 ## Project Links
 
 - **GitHub:** [sameeryadav05/MessageX](https://github.com/sameeryadav05/MessageX)
+- **Documentation:** [MessageX Documentation](https://messagex.imsameer.me)
 - **Docker Hub — Launcher:** [messagex-v2](https://hub.docker.com/r/sameeryadav2005/messagex-v2)
 - **Docker Hub — Broker:** [messagex-broker-v2](https://hub.docker.com/r/sameeryadav2005/messagex-broker-v2)
 - **Docker Hub — Dashboard:** [messagex-dashboard-v2](https://hub.docker.com/r/sameeryadav2005/messagex-dashboard-v2)

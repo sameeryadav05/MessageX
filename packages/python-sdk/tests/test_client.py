@@ -69,6 +69,43 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(client.is_authenticated)
         self.assertEqual(broker.connections, 1)
 
+    async def test_duplicate_consumer_for_same_queue_is_rejected(self):
+        def handler(broker, writer, command):
+            if command["command"] == "CONSUME":
+                writer.write(response(command, {"consumerTag": "consumer-1", "queueName": "q"}))
+                return True
+
+        broker, client = await self.start(handler)
+        await client.connect()
+        await client.consume("q", lambda message: None)
+
+        with self.assertRaisesRegex(ValueError, "Already consuming"):
+            await client.consume("q", lambda message: None)
+
+        self.assertEqual(
+            [command["command"] for command in broker.commands].count("CONSUME"),
+            1,
+        )
+
+    async def test_close_cancels_in_progress_authentication(self):
+        auth_seen = asyncio.Event()
+
+        def handler(broker, writer, command):
+            if command["command"] == "AUTH":
+                auth_seen.set()
+                return True  # Hold the handshake open until the client closes.
+
+        _, client = await self.start(handler)
+        connecting = asyncio.create_task(client.connect())
+        await asyncio.wait_for(auth_seen.wait(), 1.0)
+
+        await client.close()
+        with self.assertRaises(asyncio.CancelledError):
+            await connecting
+
+        self.assertFalse(client.is_connected)
+        self.assertFalse(client.is_authenticated)
+
     async def test_commands_rejected_before_authentication_completes(self):
         release = asyncio.Event()
         published = []

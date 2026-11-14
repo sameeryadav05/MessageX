@@ -47,7 +47,36 @@ async def main() -> None:
 
         body = await asyncio.wait_for(received, timeout=10)
         assert body["orderId"] == "ORD-SDK-1001", "Received payload does not match!"
+
+        # Exercise NACK/requeue and verify the broker redelivers the message.
+        redelivered: "asyncio.Future[int]" = asyncio.get_running_loop().create_future()
+        attempts = 0
+
+        async def retry_handler(message):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                await message.nack(requeue=True)
+            else:
+                await message.ack()
+                if not redelivered.done():
+                    redelivered.set_result(message.delivery_count)
+
         await subscription.cancel()
+        retry_subscription = await client.consume(queue_name, retry_handler)
+        await client.publish(
+            exchange_name,
+            {"orderId": "ORD-SDK-RETRY"},
+            routing_key=routing_key,
+        )
+        delivery_count = await asyncio.wait_for(redelivered, timeout=10)
+        assert attempts == 2, f"Expected 2 delivery attempts, got {attempts}"
+        assert delivery_count >= 2, f"Expected redelivery count >= 2, got {delivery_count}"
+
+        await retry_subscription.cancel()
+        await client.exchange.unbind(exchange_name, queue_name, routing_key)
+        await client.queue.delete(queue_name)
+        await client.exchange.delete(exchange_name)
         print("\nALL REAL BROKER TESTS PASSED!")
 
 

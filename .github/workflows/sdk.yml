@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/javascript-sdk
+      - tilak
     paths:
       - "packages/javascript-sdk/**"
       - "package.json"

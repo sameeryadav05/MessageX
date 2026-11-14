@@ -19,6 +19,7 @@ const documentationPaths = [
   '/docs/configuration/environment-variables',
   '/docs/deployment/docker-images',
   '/docs/deployment/production',
+  '/docs/deployment/vercel',
   '/docs/reference/commands',
   '/docs/reference/management-api',
   '/docs/reference/ports',
@@ -26,6 +27,7 @@ const documentationPaths = [
   '/docs/development/repository-layout',
   '/docs/development/testing',
   '/docs/development/contribution-workflow',
+  '/docs/development/seo',
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

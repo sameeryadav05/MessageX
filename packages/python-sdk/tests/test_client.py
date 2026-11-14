@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from unittest.mock import patch
 
 from messagex import (
     MessageX,
@@ -223,8 +224,12 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_connection_refused_raises_connection_error(self):
         client = MessageX(host="127.0.0.1", port=1, username="u", password="p", connect_timeout=1.0)
-        with self.assertRaises(MessageXConnectionError):
-            await client.connect()
+        with patch(
+            "messagex.client.asyncio.open_connection",
+            side_effect=ConnectionRefusedError("Connection refused"),
+        ):
+            with self.assertRaises(MessageXConnectionError):
+                await client.connect()
 
     async def test_publish_declare_and_bind_payloads(self):
         def handler(broker, writer, command):

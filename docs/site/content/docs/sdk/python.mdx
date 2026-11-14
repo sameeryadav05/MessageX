@@ -1,22 +1,70 @@
 ---
 title: Python SDK
-description: Python client availability and roadmap status.
+description: Python SDK availability, current support status, and planned integration surface.
 ---
 
 <Callout type="warn">
-  **Planned — not currently published.** The repository currently publishes the JavaScript / TypeScript SDK only.
+  **Planned — no official Python SDK is published yet.** The repository currently ships the JavaScript / TypeScript package `messagex-client` only. There is no supported PyPI package or installation command.
 </Callout>
 
-There is no official Python package or supported Python installation command at this time. Do not use a guessed package name from PyPI.
+Do not install a similarly named third-party package and assume it is maintained or compatible with this broker.
 
-When a Python SDK is released, this page will cover:
+## Current status
 
-- Supported Python versions and package installation.
-- Connection and authentication.
-- Queue and exchange declarations.
-- Publishing JSON messages.
-- Consuming messages and ACK/NACK.
-- Reconnection and error-handling behavior.
-- Compatibility with the MessageX protocol version.
+A Python application can reach a MessageX TCP listener only if it implements the documented protocol itself. Such a custom client is not an officially supported MessageX SDK and must be tested against the broker's protocol version.
 
-Until then, Python applications would need a separately implemented TCP protocol client. Such a client is not an officially supported SDK.
+The official [TCP protocol reference](/docs/architecture/protocol) documents the frame format:
+
+- Four-byte unsigned big-endian payload length.
+- UTF-8 JSON payload.
+- Protocol version 1 command, response, and event envelopes.
+- A maximum frame payload of 1 MiB.
+
+## Planned Python package scope
+
+When an official package is released, its guide will include:
+
+1. Supported Python versions and PyPI installation.
+2. Async and/or synchronous client API design.
+3. TCP connection timeout and socket lifecycle.
+4. CONNECT and AUTH handshake.
+5. Queue and exchange declaration/deletion.
+6. Direct, fanout, topic, and headers bindings.
+7. Publishing JSON-serializable messages and headers.
+8. Consumer callbacks/async iterators and delivery tags.
+9. Explicit ACK, NACK, retry, and cancellation.
+10. Typed exceptions, reconnect policy, and test coverage.
+
+## Planned API shape (illustrative only)
+
+The following is a conceptual example, **not a working package API**:
+
+```python
+# Illustrative pseudocode — no official package exists yet.
+client = MessageXClient(
+    host="127.0.0.1",
+    port=5678,
+    username="app-user",
+    password=os.environ["MESSAGEX_PASSWORD"],
+)
+
+await client.connect()
+await client.queue.declare(name="orders", durable=True)
+
+async def handle(message):
+    try:
+        await process_order(message.body)
+        await message.ack()
+    except Exception:
+        await message.nack(requeue=True)
+
+await client.consume(queue_name="orders", callback=handle)
+```
+
+Do not copy this into an application expecting it to run today.
+
+## Compatibility and delivery requirements
+
+A future Python SDK must match the broker's framing, protocol validation, request correlation, event delivery, and delivery ownership checks. It must also document the broker's current prefetch count of one per connection and queue, and the fact that the broker does not provide a distributed transaction with application databases.
+
+Until the official package is released, use the supported [JavaScript / TypeScript SDK](/docs/sdk/javascript) or implement the wire protocol independently with the understanding that the custom client is your responsibility.

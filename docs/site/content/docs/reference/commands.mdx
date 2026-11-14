@@ -1,42 +1,232 @@
 ---
-title: Broker commands
-description: The current command names registered by the MessageX TCP broker.
+title: Broker commands and concepts
+description: Learn CONNECT, AUTH, queue and exchange declarations, bindings, publish, consume, ACK, NACK, and CANCEL through the official SDK.
 ---
 
-The broker's `CommandHandler` dispatches protocol commands to dedicated handlers. The currently registered command set is:
+The broker accepts version 1 commands over its TCP connection. The recommended integration is the official Node.js package, `messagex-client`. It handles frame encoding, request IDs, the connection handshake, and delivery events for you.
 
-| Command | Purpose |
-| --- | --- |
-| `CONNECT` | Register client connection metadata |
-| `AUTH` | Authenticate a client |
-| `QUEUE_DECLARE` | Declare a queue |
-| `QUEUE_DELETE` | Delete a queue |
-| `EXCHANGE_DECLARE` | Declare an exchange |
-| `EXCHANGE_DELETE` | Delete an exchange |
-| `BIND` | Bind a queue to an exchange |
-| `UNBIND` | Remove a queue binding |
-| `PUBLISH` | Publish a message to an exchange |
-| `CONSUME` | Subscribe to a queue |
-| `ACK` | Acknowledge a delivery |
-| `NACK` | Reject a delivery with optional requeue |
-| `CANCEL` | Cancel a consumer subscription |
+For installation and complete runnable examples, see the [JavaScript SDK guide](/docs/sdk/javascript).
 
-All commands use the version 1 protocol envelope. See [TCP protocol and framing](/docs/architecture/protocol).
+## Command lifecycle at a glance
 
-## Authentication gate
+| Stage | Broker command | SDK API | Purpose |
+| --- | --- | --- | --- |
+| Register connection | `CONNECT` | `client.connect()` internally | Register a client name |
+| Authenticate | `AUTH` | `client.connect()` internally | Verify broker credentials |
+| Create queue | `QUEUE_DECLARE` | `client.queue.declare()` | Create a named message queue |
+| Remove queue | `QUEUE_DELETE` | `client.queue.delete()` | Delete a queue |
+| Create exchange | `EXCHANGE_DECLARE` | `client.exchange.declare()` | Create a routing exchange |
+| Remove exchange | `EXCHANGE_DELETE` | `client.exchange.delete()` | Delete an exchange |
+| Add binding | `BIND` | `client.exchange.bind()` | Route matching messages to a queue |
+| Remove binding | `UNBIND` | `client.exchange.unbind()` | Remove a routing relationship |
+| Publish | `PUBLISH` | `client.publish()` | Route a message through an exchange |
+| Subscribe | `CONSUME` | `client.consume()` | Register a consumer on a queue |
+| Settle success | `ACK` | `message.ack()` | Acknowledge one delivery |
+| Reject delivery | `NACK` | `message.nack()` | Requeue, dead-letter, or discard |
+| Stop subscription | `CANCEL` | `subscription.cancel()` | Cancel a consumer |
 
-The broker allows `CONNECT` and `AUTH` before authentication. Other commands are rejected with `ERR_AUTH_REQUIRED` until authentication succeeds.
+## 1. CONNECT — identify a client connection
 
-## Responses
+A TCP socket can connect before it has a registered application identity. The `CONNECT` command registers a `clientName` on that connection. It must be a non-empty string with a maximum length of 64 characters.
 
-Responses carry the originating `requestId` and a `success` boolean. A failed response includes an error code and message. The command handler returns `ERR_UNKNOWN_COMMAND` when a command is not registered.
+The official SDK sends this command automatically:
 
-## Source of truth
+```ts
+const client = new MessageX({
+  host: '127.0.0.1',
+  port: 5678,
+  username: process.env.MESSAGEX_USER!,
+  password: process.env.MESSAGEX_PASSWORD!,
+  clientName: 'billing-worker',
+});
 
-The implementation is in:
+await client.connect();
+```
+
+A successful response includes the broker connection ID, client name, and protocol version.
+
+## 2. AUTH — authenticate the connection
+
+After CONNECT, the client sends `AUTH` with its broker username and password. The broker verifies the password hash against the broker user repository. Until authentication succeeds, commands other than CONNECT and AUTH are rejected with `ERR_AUTH_REQUIRED`.
+
+The SDK's `connect()` promise resolves only after both CONNECT and AUTH succeed. Never log passwords or place them in source control.
+
+## 3. QUEUE_DECLARE and QUEUE_DELETE — manage queues
+
+A queue holds messages until a consumer claims them. Declare it before binding or consuming:
+
+```ts
+await client.queue.declare({
+  name: 'payments',
+  durable: true,
+  exclusive: false,
+  autoDelete: false,
+  maxDeliveryCount: 4,
+  deadLetterQueue: 'payments.dead',
+});
+```
+
+Queue options:
+
+- `durable`: queue declaration is persisted in PostgreSQL.
+- `exclusive`: only the declaring connection can consume from, bind to, or delete the queue.
+- `autoDelete`: queue lifecycle option stored by the broker.
+- `maxDeliveryCount`: positive retry/delivery threshold.
+- `deadLetterQueue`: queue to receive a message when it exhausts the configured delivery count.
+
+Names must be non-empty and no longer than 255 characters. Delete with `client.queue.delete('payments')`. Queue deletion removes associated bindings and messages through database relationships; treat it as destructive.
+
+## 4. EXCHANGE_DECLARE and EXCHANGE_DELETE — choose routing behavior
+
+An exchange accepts published messages and evaluates its bindings to determine destination queues.
+
+```ts
+await client.exchange.declare({
+  name: 'payments.events',
+  type: 'topic',
+  durable: true,
+});
+```
+
+Supported routing types:
+
+| Type | Meaning | Example binding |
+| --- | --- | --- |
+| `direct` | Exact routing-key equality | `payments.created` |
+| `fanout` | Every queue bound to the exchange receives a copy | Empty routing key |
+| `topic` | Dot-separated patterns; `*` matches one word, `#` matches zero or more | `payments.*` |
+| `headers` | Match message headers against binding arguments | `{ 'x-match': 'all', region: 'eu' }` |
+
+Delete an exchange with `client.exchange.delete('payments.events')`. Review dependent bindings and producers before deleting it.
+
+## 5. BIND and UNBIND — connect exchanges to queues
+
+A binding defines the relationship between an exchange and a destination queue. The routing key and arguments are interpreted according to the exchange type.
+
+```ts
+await client.exchange.bind({
+  exchangeName: 'payments.events',
+  queueName: 'payments',
+  routingKey: 'payments.created',
+});
+```
+
+For topic exchanges, a pattern can be used:
+
+```ts
+await client.exchange.bind({
+  exchangeName: 'payments.events',
+  queueName: 'all-payments',
+  routingKey: 'payments.#',
+});
+```
+
+For headers exchanges:
+
+```ts
+await client.exchange.bind({
+  exchangeName: 'payments.by-region',
+  queueName: 'eu-payments',
+  arguments: {
+    'x-match': 'all',
+    region: 'eu',
+    priority: 'high',
+  },
+});
+```
+
+The broker accepts at most 32 binding arguments. The optional `x-match` value must be `all` or `any`.
+
+Remove the same binding with `client.exchange.unbind()`, supplying its exchange, queue, routing key, and arguments.
+
+## 6. PUBLISH — send a message to an exchange
+
+Publish supplies the exchange name, routing key, message body, and optional headers:
+
+```ts
+const result = await client.publish({
+  exchangeName: 'payments.events',
+  routingKey: 'payments.created',
+  message: { paymentId: 'pay_123', amount: 499 },
+  headers: { source: 'checkout-api' },
+});
+
+console.log(result.routedQueues);
+```
+
+The body must be JSON-serializable. The broker resolves bindings and persists a message record for each matched destination queue in a database transaction. A successful publish can have `routedQueues: 0` if no binding matches.
+
+## 7. CONSUME — receive messages from a queue
+
+A consumer subscribes to an existing queue:
+
+```ts
+const subscription = await client.consume({
+  queueName: 'payments',
+  onMessage: async (message) => {
+    console.log(message.body, message.deliveryTag);
+    await processPayment(message.body);
+    await message.ack();
+  },
+});
+```
+
+The broker tracks active subscriptions in memory. Current prefetch is one in-flight delivery per connection and queue. A consumer callback may return a promise; the SDK catches callback rejections and emits `consumerError`, but it does not automatically ACK or NACK the delivery.
+
+## 8. ACK — settle a successful delivery
+
+Every delivered message contains a `deliveryTag`. ACK that delivery only after application processing succeeds:
+
+```ts
+await processPayment(message.body);
+await message.ack();
+```
+
+The broker verifies that the tag exists and belongs to the sending connection. A successful ACK removes the in-flight message record and frees the consumer's prefetch slot so the next message can be dispatched.
+
+If the process performs an external side effect and crashes before ACK, the message can be delivered again. Design consumers to be idempotent.
+
+## 9. NACK — reject a delivery
+
+Reject a message with an explicit requeue choice:
+
+```ts
+await message.nack({ requeue: true });
+```
+
+Current behavior:
+
+- If `requeue: true` and the delivery limit has not been reached, the message returns to ready state.
+- If the limit is reached and a dead-letter queue is configured, the broker moves the message to that queue and adds death metadata.
+- If the limit is reached without a dead-letter queue, the message is marked dead.
+- If `requeue: false`, the message record is deleted/discarded.
+
+The `deliveryTag` must belong to the connection issuing NACK. The broker releases the consumer's prefetch slot after the database operation succeeds.
+
+## 10. CANCEL — stop a consumer
+
+```ts
+await subscription.cancel();
+```
+
+CANCEL removes the consumer subscription. It does not invalidate a delivery that has already been sent; settle any in-flight delivery using its ACK/NACK methods.
+
+## Authentication and error responses
+
+Only CONNECT and AUTH are allowed before authentication. Other commands require an authenticated connection. Responses contain the original `requestId`, a `success` flag, and either a payload or an error code/message.
+
+Examples of validation failures include `ERR_INVALID_QUEUE_NAME`, `ERR_INVALID_EXCHANGE_TYPE`, `ERR_INVALID_DELIVERY_TAG`, `ERR_QUEUE_NOT_FOUND`, and `ERR_EXCLUSIVE_QUEUE_ACCESS`.
+
+## Protocol details
+
+All commands use protocol version 1 and are encoded as JSON inside a four-byte big-endian length-prefixed TCP frame. See [TCP protocol and framing](/docs/architecture/protocol) for the frame envelope and validation rules.
+
+The current broker registers the commands listed above. Although HEARTBEAT is present in the protocol schema, it is not currently registered as a command handler. Do not rely on it as a supported client operation.
+
+## Implementation references
 
 - `apps/broker/src/commands/command.handler.ts`
 - `apps/broker/src/commands/handlers/`
 - `apps/broker/src/protocol/protocol.schema.ts`
-
-This page lists the command names registered by the current source. Consult the handler and Zod schema for exact payload fields and validation rules before implementing a raw protocol client.
+- `packages/javascript-sdk/src/client.ts`
+- `packages/javascript-sdk/src/types.ts`

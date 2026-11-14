@@ -1,0 +1,16 @@
+LICENSE
+README.md
+pyproject.toml
+src/messagex/__init__.py
+src/messagex/client.py
+src/messagex/errors.py
+src/messagex/events.py
+src/messagex/frame.py
+src/messagex/py.typed
+src/messagex/types.py
+src/messagex_client.egg-info/PKG-INFO
+src/messagex_client.egg-info/SOURCES.txt
+src/messagex_client.egg-info/dependency_links.txt
+src/messagex_client.egg-info/top_level.txt
+tests/test_client.py
+tests/test_frame.py

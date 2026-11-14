@@ -48,7 +48,7 @@ export async function generateMetadata({
   const page = source.getPage(slug);
   if (!page) notFound();
 
-  const path = `/docs/${slug.join('/')}`;
+  const path = slug.length > 0 ? `/docs/${slug.join('/')}` : '/docs';
   const title = `${page.data.title} | MessageX Documentation`;
   const description = page.data.description ??
     'Technical guides and reference documentation for the MessageX self-hosted message broker.';

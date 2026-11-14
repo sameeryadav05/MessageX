@@ -56,12 +56,12 @@ export default function Home() {
         }}
       />
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-[620px] bg-[radial-gradient(ellipse_at_top,_color-mix(in_oklab,var(--color-fd-primary)_17%,transparent),transparent_68%)]" />
-      <header className="relative mx-auto flex max-w-7xl items-center justify-between px-6 py-7 lg:px-10">
+      <header className="relative mx-auto flex max-w-7xl flex-col items-start gap-5 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:py-7 lg:px-10">
         <Link href="/" className="flex items-center gap-3">
           <img src="/brand/messagex-logo.svg" alt="MessageX" className="h-9 w-auto" />
           <span className="text-sm font-semibold tracking-tight">Documentation</span>
         </Link>
-        <nav className="flex items-center gap-5 text-sm text-fd-muted-foreground">
+        <nav className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fd-muted-foreground sm:w-auto sm:gap-5">
           <Link className="transition-colors hover:text-fd-foreground" href="/docs">Guides</Link>
           <a className="transition-colors hover:text-fd-foreground" href="https://github.com/sameeryadav05/MessageX">GitHub</a>
           <a className="rounded-lg border border-fd-border bg-fd-card px-4 py-2 font-medium text-fd-foreground transition-colors hover:bg-fd-accent" href="https://www.npmjs.com/package/messagex-client">npm package</a>

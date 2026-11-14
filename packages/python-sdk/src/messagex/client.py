@@ -245,12 +245,25 @@ class MessageX(EventEmitter):
             raise
 
     async def close(self) -> None:
-        """Close the socket, clear consumers and reject pending requests."""
+        """Close the socket, including an in-progress connection attempt."""
         self._closing = True
         self._authenticated = False
         self._connected = False
         self._consumers.clear()
         self._pending_consumers_by_queue.clear()
+
+        # connect() shields the shared connection task from cancellation by an
+        # individual caller. Explicitly cancel it here so close() cannot return
+        # while a TCP connect or CONNECT/AUTH handshake is still in progress.
+        connect_task = self._connect_task
+        if (
+            connect_task is not None
+            and connect_task is not asyncio.current_task()
+            and not connect_task.done()
+        ):
+            connect_task.cancel()
+            await asyncio.gather(connect_task, return_exceptions=True)
+        self._connect_task = None
 
         writer = self._writer
         task = self._reader_task
@@ -299,6 +312,14 @@ class MessageX(EventEmitter):
         """Start consuming ``queue_name``. ``on_message`` may be sync or async."""
         if not callable(on_message):
             raise TypeError("consume requires an on_message callback")
+        if (
+            queue_name in self._pending_consumers_by_queue
+            or any(c.queue_name == queue_name for c in self._consumers.values())
+        ):
+            raise ValueError(
+                f"Already consuming or registering a consumer for queue {queue_name!r} "
+                "on this connection"
+            )
 
         consumer = _Consumer(queue_name, on_message)
 

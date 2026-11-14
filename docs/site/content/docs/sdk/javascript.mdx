@@ -1,28 +1,48 @@
 ---
 title: JavaScript / TypeScript SDK
-description: Install messagex-client and integrate Node.js applications with a MessageX broker.
+description: Install messagex-client and use connections, queues, exchanges, bindings, publishing, consumers, ACK, NACK, and cancellation.
 ---
 
-The official MessageX JavaScript / TypeScript client is published on npm as **`messagex-client`**. The package is distributed as ECMAScript modules with TypeScript declaration files.
+The official MessageX client is published on npm as **`messagex-client`**. It is a Node.js TCP client distributed as ECMAScript modules with TypeScript declarations.
 
 <Callout type="info">
-  **Runtime:** Node.js 20 or newer. The SDK uses Node's TCP socket API and is not a browser SDK.
+  **Availability:** JavaScript / TypeScript is the currently published official SDK. Python and Java clients are roadmap items, not installable official packages yet.
 </Callout>
 
-## Installation
+## 1. Requirements and installation
+
+- Node.js 20 or newer
+- A reachable MessageX broker TCP endpoint
+- A broker username and password created during deployment
+
+Install the client:
 
 ```bash
 npm install messagex-client
 ```
 
-Package links:
+References: [npm package](https://www.npmjs.com/package/messagex-client) · [SDK source](https://github.com/sameeryadav05/MessageX/tree/main/packages/javascript-sdk)
 
-- [npm package](https://www.npmjs.com/package/messagex-client)
-- [SDK source in GitHub](https://github.com/sameeryadav05/MessageX/tree/main/packages/javascript-sdk)
+## 2. Configure credentials
 
-## Connect to the broker
+Keep connection details outside source code. For Node.js 20.6+, create a local `.env` file:
 
-Start MessageX first. With the standard Docker deployment, the broker TCP endpoint is available at `localhost:5678`.
+```dotenv
+MESSAGEX_HOST=127.0.0.1
+MESSAGEX_PORT=5678
+MESSAGEX_USER=admin
+MESSAGEX_PASSWORD=replace-with-your-broker-password
+```
+
+Add `.env` to `.gitignore`. Never commit real credentials.
+
+## 3. Connect and authenticate
+
+`connect()` opens a TCP socket and performs the protocol handshake in order:
+
+1. `CONNECT` registers the client name on the connection.
+2. `AUTH` verifies the username and password.
+3. The promise resolves after both commands succeed.
 
 ```js
 import { MessageX } from 'messagex-client';
@@ -32,44 +52,148 @@ const client = new MessageX({
   port: Number(process.env.MESSAGEX_PORT ?? 5678),
   username: process.env.MESSAGEX_USER,
   password: process.env.MESSAGEX_PASSWORD,
+  clientName: 'orders-service',
+});
+
+client.on('disconnect', () => {
+  console.error('MessageX connection closed');
+});
+client.on('warning', (error) => {
+  console.warn('MessageX warning:', error.message);
+});
+client.on('error', (error) => {
+  console.error('MessageX socket error:', error.message);
 });
 
 await client.connect();
-
-console.log('Connected:', client.isConnected);
-console.log('Authenticated:', client.isAuthenticated);
+console.log(client.isConnected, client.isAuthenticated);
 ```
 
-The constructor requires `host`, `username`, and `password`. The port defaults to `5678`.
+The SDK requires `host`, `username`, and `password`. The default TCP port is `5678`. Calling broker methods before `connect()` completes rejects with a connection error.
 
-## Declare an exchange and queue
+## 4. Understand the broker resources
 
-```ts
-await client.exchange.declare({
-  name: 'orders.exchange',
-  type: 'direct',
+A producer does not publish directly to a queue. It publishes to an **exchange**. The exchange evaluates its **bindings** and routes a copy of the message to each matching **queue**.
+
+- **Exchange:** routing entry point for published messages.
+- **Queue:** persisted holding area from which consumers receive messages.
+- **Binding:** relationship between an exchange and a queue, optionally with a routing key and arguments.
+- **Routing key:** string supplied by the publisher and evaluated by the exchange's routing strategy.
+- **Consumer:** active subscription that receives deliveries from a queue.
+- **Delivery tag:** identifier for one in-flight delivery. The broker checks both the tag and owning connection when settling it.
+
+## 5. Declare a queue
+
+```js
+const { queue } = await client.queue.declare({
+  name: 'orders.created',
   durable: true,
+  exclusive: false,
+  autoDelete: false,
+  maxDeliveryCount: 5,
+  deadLetterQueue: 'orders.dead',
 });
 
-await client.queue.declare({
-  name: 'orders',
+console.log(queue);
+```
+
+| Option | Meaning |
+| --- | --- |
+| `name` | Required queue name; maximum 255 characters |
+| `durable` | Persist queue declaration in PostgreSQL |
+| `exclusive` | Restrict access to the declaring connection |
+| `autoDelete` | Queue declaration option stored with the queue |
+| `maxDeliveryCount` | Positive delivery limit used by retry/dead-letter handling |
+| `deadLetterQueue` | Destination queue name when the delivery limit is reached |
+
+The broker associates an exclusive queue with its declaring connection. Other connections cannot consume from, bind to, or delete that exclusive queue.
+
+## 6. Declare an exchange
+
+```js
+const { exchange } = await client.exchange.declare({
+  name: 'orders.events',
+  type: 'topic',
   durable: true,
 });
+console.log(exchange);
+```
 
+MessageX supports four exchange types:
+
+| Type | Routing behavior | Example |
+| --- | --- | --- |
+| `direct` | Exact routing-key match | `orders.created` matches `orders.created` |
+| `fanout` | Routes to every queue bound to the exchange | Routing key is not used for selection |
+| `topic` | Dot-separated pattern matching; `*` matches one word and `#` matches zero or more words | `orders.*` matches `orders.created` |
+| `headers` | Compares message headers with binding arguments | `{ region: 'apac' }` |
+
+Exchange names are required and limited to 255 characters. The `durable` option defaults according to the broker's declaration defaults.
+
+## 7. Bind a queue to an exchange
+
+A binding tells the exchange which queue should receive matching messages.
+
+### Direct binding
+
+```js
 await client.exchange.bind({
-  exchangeName: 'orders.exchange',
-  queueName: 'orders',
+  exchangeName: 'orders.events',
+  queueName: 'orders.created',
   routingKey: 'orders.created',
 });
 ```
 
-Supported exchange types are `direct`, `fanout`, `topic`, and `headers`.
+### Topic binding
 
-## Publish a message
+```js
+await client.exchange.bind({
+  exchangeName: 'orders.events',
+  queueName: 'all.order.events',
+  routingKey: 'orders.*',
+});
+```
 
-```ts
+### Fanout binding
+
+```js
+await client.exchange.bind({
+  exchangeName: 'broadcast.events',
+  queueName: 'notifications.email',
+});
+```
+
+### Headers binding
+
+```js
+await client.exchange.bind({
+  exchangeName: 'events.by-header',
+  queueName: 'apac.events',
+  arguments: {
+    'x-match': 'all',
+    region: 'apac',
+    priority: 'high',
+  },
+});
+```
+
+For headers exchanges, `x-match: 'all'` requires every supplied binding argument to match; `x-match: 'any'` accepts a match on any supplied argument. Binding arguments are limited to 32 entries.
+
+Remove a binding with the same exchange, queue, routing key, and arguments:
+
+```js
+await client.exchange.unbind({
+  exchangeName: 'orders.events',
+  queueName: 'orders.created',
+  routingKey: 'orders.created',
+});
+```
+
+## 8. Publish a message
+
+```js
 const result = await client.publish({
-  exchangeName: 'orders.exchange',
+  exchangeName: 'orders.events',
   routingKey: 'orders.created',
   message: {
     orderId: 'ORD-1001',
@@ -78,108 +202,140 @@ const result = await client.publish({
   },
   headers: {
     source: 'checkout-service',
+    region: 'apac',
   },
 });
 
-console.log('Published:', result);
-console.log('Matched queues:', result.routedQueues);
+console.log('Queues matched:', result.routedQueues);
 ```
 
-Message bodies must be JSON-serializable values.
+The message body must be JSON-serializable. The broker commits routed message records to PostgreSQL before it asks the consumer manager to dispatch available messages. `routedQueues` reports the number of matched destination queues, not the number of consumers.
 
-## Consume and acknowledge
+If no binding matches, the publish can succeed with zero routed queues. Confirm exchange and binding configuration when messages are not arriving.
 
-```ts
+## 9. Consume messages
+
+A consumer registers against an existing queue. The broker returns a `consumerTag` and begins delivering available messages through the callback.
+
+```js
 const subscription = await client.consume({
-  queueName: 'orders',
+  queueName: 'orders.created',
   onMessage: async (message) => {
-    try {
-      console.log('Received:', message.body);
-      await processOrder(message.body);
-      await message.ack();
-    } catch (error) {
-      console.error('Processing failed:', error);
-      await message.nack({ requeue: true });
-    }
+    console.log('Body:', message.body);
+    console.log('Headers:', message.headers);
+    console.log('Delivery count:', message.deliveryCount);
+
+    await processOrder(message.body);
+    await message.ack();
   },
 });
 
-// On application shutdown:
+console.log('Consumer tag:', subscription.consumerTag);
+```
+
+The current broker uses **prefetch count 1 per connection and queue**. The consumer manager keeps active subscriptions in memory; the subscription itself is not a durable database resource.
+
+## 10. ACK: acknowledge successful processing
+
+Call `message.ack()` after your application has completed the work it considers successful:
+
+```js
+await processOrder(message.body);
+await message.ack();
+```
+
+The broker verifies that the delivery tag belongs to the current connection. A valid ACK removes the message record and releases the consumer's prefetch slot so another message can be dispatched.
+
+Do not ACK before completing important side effects. MessageX does not provide a distributed transaction between the broker and your application database.
+
+## 11. NACK: reject a delivery
+
+Use `message.nack()` when processing fails:
+
+```js
+try {
+  await processOrder(message.body);
+  await message.ack();
+} catch (error) {
+  console.error(error);
+  await message.nack({ requeue: true });
+}
+```
+
+| Call | Current behavior |
+| --- | --- |
+| `nack({ requeue: true })` | Return the message to the ready state while under the configured delivery limit |
+| `nack({ requeue: true })` at the delivery limit | Move to the configured dead-letter queue, or mark dead if no DLQ exists |
+| `nack({ requeue: false })` | Delete/discard the message record |
+
+A failed message can be delivered more than once. Make consumer handlers idempotent when processing external side effects.
+
+## 12. Cancel a consumer
+
+```js
+await subscription.cancel();
+```
+
+Cancellation stops that consumer subscription. An already delivered in-flight message can still be settled using its ACK/NACK methods.
+
+## 13. Delete queues and exchanges
+
+These operations are destructive. Deleting a queue also removes its associated message and binding records according to the database relationships.
+
+```js
+await client.queue.delete('orders.created');
+await client.exchange.delete('orders.events');
+```
+
+Delete only after confirming that no producer or consumer still depends on the resource.
+
+## 14. Close the connection cleanly
+
+```js
 await subscription.cancel();
 await client.close();
 ```
 
-The callback can be synchronous or asynchronous. Always settle a delivery using `ack()` or `nack()`. If the callback throws or rejects, the SDK emits `consumerError`; it does not automatically acknowledge or reject the message.
+For a process that manages multiple subscriptions, cancel each subscription before closing the client. On connection loss, the broker releases unsettled deliveries owned by that connection; the SDK does not automatically reconnect or restore subscriptions.
 
-The current broker uses prefetch count 1 per consumer connection and queue.
-
-## Client options
+## 15. Client options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `host` | `string` | Required | Broker hostname or IP address |
+| `host` | `string` | Required | Broker hostname or IP |
 | `port` | `number` | `5678` | Broker TCP port |
 | `username` | `string` | Required | Broker username |
 | `password` | `string` | Required | Broker password |
-| `clientName` | `string` | `messagex-node-client` | Client identifier |
-| `connectTimeout` | `number` | `10000` | Connection timeout in milliseconds |
-| `requestTimeout` | `number` | `15000` | Command timeout in milliseconds |
+| `clientName` | `string` | `messagex-node-client` | Connection label |
+| `connectTimeout` | `number` | `10000` | Socket connection timeout in milliseconds |
+| `requestTimeout` | `number` | `15000` | Command response timeout in milliseconds |
 | `maxFrameSize` | `number` | `1048576` | Maximum frame payload size in bytes |
 
-## Common client methods
+## 16. SDK events and errors
 
-| API | Purpose |
-| --- | --- |
-| `new MessageX(options)` | Create a client |
-| `client.connect()` | Open the TCP connection and perform CONNECT/AUTH |
-| `client.close()` | Close the socket and clear local consumer state |
-| `client.queue.declare(options)` | Declare a queue |
-| `client.queue.delete(name)` | Delete a queue |
-| `client.exchange.declare(options)` | Declare an exchange |
-| `client.exchange.bind(options)` | Bind a queue to an exchange |
-| `client.exchange.unbind(options)` | Remove a binding |
-| `client.publish(options)` | Publish a message |
-| `client.consume(options)` | Subscribe to a queue |
+The SDK extends Node.js `EventEmitter`.
 
-A delivery includes `consumerTag`, `queueName`, `messageId`, `deliveryTag`, `body`, `headers`, `routingKey`, `deliveryCount`, and `createdAt`, as well as `ack()` and `nack({ requeue })`.
+- `connect`, `disconnect`, `close` — connection lifecycle.
+- `message` — each delivered message.
+- `event` — non-message broker events.
+- `warning` — recoverable SDK/protocol warning.
+- `error` — socket or protocol error; attach a listener to handle it.
+- `consumerError` — an application message callback threw or rejected.
 
-## Events
+Exported error classes:
 
-The SDK extends Node.js `EventEmitter`. The documented events include:
+- `MessageXError`
+- `MessageXConnectionError`
+- `MessageXTimeoutError`
+- `MessageXBrokerError`
 
-- `connect`, `disconnect`, and `close` for connection lifecycle.
-- `message` for delivered messages.
-- `event` for other broker events.
-- `warning` and `error` for connection/protocol problems.
-- `consumerError` when an application message callback throws or rejects.
+## 17. Current limitations
 
-Attach an `error` listener when you want to handle emitted errors using Node's EventEmitter convention.
+The current SDK does not implement automatic reconnect, subscription restoration, browser/WebSocket transport, TLS, transactions, batch publishing, or management HTTP API methods. The broker's TCP protocol is not encrypted; use a private network, VPN, SSH tunnel, or other protected transport for remote deployments.
 
-## Error types
+## 18. Examples and source
 
-The package exports:
-
-- `MessageXError` — base SDK error.
-- `MessageXConnectionError` — connection lifecycle and socket errors.
-- `MessageXTimeoutError` — connection or command timeout.
-- `MessageXBrokerError` — broker-rejected command; includes a `code` property.
-
-## Connection lifecycle and limitations
-
-The SDK does not automatically reconnect or restore subscriptions. Handle `disconnect` and implement reconnection and subscription recovery in your application when required.
-
-The current TCP protocol does not provide TLS encryption. Use a private network, VPN, SSH tunnel, and restrictive firewall rules when connecting to a remote broker. Do not send credentials or message data across untrusted networks.
-
-The SDK currently does not provide browser/WebSocket transport, TLS transport, transactions, batch publishing, or management HTTP API methods.
-
-## Complete examples and tests
-
-See the repository's `examples` directory and [SDK README](https://github.com/sameeryadav05/MessageX/blob/main/packages/javascript-sdk/README.md) for further examples.
-
-From the repository root:
-
-```bash
-npm install
-npm run build:sdk
-npm run test:sdk
-```
+- [MessageX examples](https://github.com/sameeryadav05/MessageX/tree/main/examples)
+- [JavaScript SDK source](https://github.com/sameeryadav05/MessageX/tree/main/packages/javascript-sdk)
+- [SDK README](https://github.com/sameeryadav05/MessageX/blob/main/packages/javascript-sdk/README.md)
+- [npm: messagex-client](https://www.npmjs.com/package/messagex-client)

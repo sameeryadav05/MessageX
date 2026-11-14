@@ -1,0 +1,86 @@
+---
+title: Storage and delivery reliability
+description: How PostgreSQL stores broker state and how MessageX claims, acknowledges, retries, and recovers messages.
+---
+
+MessageX uses PostgreSQL as the persistence boundary for broker resources and queued messages. Consumer subscriptions and dispatch coordination are maintained in broker memory; message state and delivery ownership are persisted in the database.
+
+## What is persisted
+
+The migrations under `apps/broker/src/database/migrations` define the current schema. At a high level it includes:
+
+| Table | Responsibility |
+| --- | --- |
+| `broker_users` | Credentials used by TCP clients |
+| `exchanges` | Exchange declarations and types |
+| `queues` | Queue configuration, including durability and dead-letter settings |
+| `bindings` | Exchange-to-queue routing relationships and binding arguments |
+| `messages` | Message payloads, headers, queue association, and delivery state |
+| `management_sessions` | Hashed management session tokens and expiration |
+
+Message payloads are stored as PostgreSQL `BYTEA` containing the JSON-serialized message body. Headers and binding arguments use `JSONB`.
+
+## Publish transaction
+
+The TCP publish handler delegates to the message repository. The repository:
+
+1. Starts a PostgreSQL transaction.
+2. Loads the target exchange and its bindings.
+3. Evaluates the exchange routing rules.
+4. Inserts a message record for each unique destination queue.
+5. Commits the transaction and returns the matched queues.
+
+The transaction keeps routing and message insertion together: a publish does not partially insert destination records if the transaction fails.
+
+## Claiming a message
+
+The consumer manager chooses an eligible consumer and asks the repository to claim a ready message. The claim query uses a PostgreSQL common table expression and `FOR UPDATE SKIP LOCKED` so concurrent claimers do not select the same locked row.
+
+A successful claim changes the message to `in_flight`, records a delivery tag, consumer connection ID, and delivery timestamp, and increments its delivery count. The broker then emits a `MESSAGE_DELIVERED` event to that connection.
+
+The current implementation uses prefetch = 1 for each connection-and-queue pair. The consumer manager also tracks active subscriptions and dispatch state in memory; those live subscriptions are not durable database records.
+
+## ACK and NACK
+
+### ACK
+
+An ACK is checked against the delivery tag and owning connection. A valid acknowledgement removes the matching in-flight message record.
+
+### NACK with requeue
+
+When a consumer rejects a message with requeue enabled, the repository locks and checks the message state:
+
+- If the configured delivery limit has not been reached, the message returns to `ready`.
+- If the limit is reached and a dead-letter queue is configured, the message is moved to that queue and death metadata is added to its headers.
+- If the limit is reached without a dead-letter queue, the message is retained with `dead` status.
+
+A NACK with `requeue: false` deletes the message record in the current implementation.
+
+## Timeout and connection recovery
+
+The broker periodically looks for in-flight messages older than `ACK_TIMEOUT_SECONDS`. Expired deliveries are released through the repository's retry and dead-letter handling path.
+
+When a TCP connection closes, the consumer manager removes its subscriptions and releases messages owned by that connection. This allows remaining eligible consumers to receive the recovered messages.
+
+The Compose configuration currently sets `ACK_TIMEOUT_SECONDS=30` and `ACK_TIMEOUT_CHECK_INTERVAL_MS=5000`; deployments can configure these values for their workload.
+
+## Delivery guarantees and application design
+
+A successful broker ACK settles the broker's delivery record. It does not create a distributed transaction with the consumer's database or external APIs. If an application performs a side effect and crashes before ACK, the message may be delivered again.
+
+For that reason:
+
+- Make consumer handlers idempotent where practical.
+- Store application-level idempotency keys for side effects that must not be repeated.
+- ACK only after the application has completed the work it considers successful.
+- Use NACK deliberately and configure dead-letter queues for messages that exhaust their retry policy.
+- Test consumer crash, disconnect, timeout, and retry behavior before production use.
+
+See [Message lifecycle](/docs/architecture/message-lifecycle) for the end-to-end path and [Production considerations](/docs/deployment/production) for operational precautions.
+
+## Implementation map
+
+- `apps/broker/src/messages/message.repository.ts` — publish transaction, claim, ACK, NACK, release, and recovery operations.
+- `apps/broker/src/consumers/consumer.manager.ts` — in-memory subscriptions, dispatch, prefetch, and disconnect cleanup.
+- `apps/broker/src/database/migrations` — schema evolution.
+- `apps/broker/src/server/index.ts` — startup, migrations, and scheduled recovery.

@@ -1,48 +1,113 @@
 ---
 title: Python SDK
-description: Install and use the official asynchronous Python client for the MessageX self-hosted message broker.
+description: Install, configure, and use the official asynchronous Python client for the MessageX self-hosted message broker.
 ---
 
-The official MessageX Python SDK is an **asyncio TCP client** distributed on PyPI as `messagex-client`. Its import package is named `messagex`.
+The official MessageX Python SDK is an **asyncio TCP client** distributed on TestPyPI as `messagex-client`. Its Python import package is named `messagex`. It implements the MessageX protocol v1 and has no third-party runtime dependencies.
 
-## Availability
+<Callout type="info">
+  **Release status:** Version `0.1.0` has been uploaded to TestPyPI and verified against a running MessageX broker. It has **not** been released to production PyPI yet. Use the TestPyPI instructions below to install the published test build, or install from the repository for development.
+</Callout>
 
-The SDK source and release workflow are in this repository. The first public PyPI release is being prepared; until the release is announced, install from the `tilak` branch:
+## 1. Requirements and installation
+
+- Python **3.9 or newer**
+- A reachable MessageX broker TCP endpoint
+- A broker username and password created during deployment
+
+The standard Docker deployment exposes the broker on `localhost:5678`.
+
+### Install the verified TestPyPI build
+
+Create and activate a virtual environment, then install the package from TestPyPI:
+
+```bash
+python -m venv .venv
+```
+
+Linux / macOS:
+
+```bash
+source .venv/bin/activate
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Install version `0.1.0`:
+
+```bash
+python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ messagex-client==0.1.0
+```
+
+TestPyPI is a separate package index from production PyPI. The normal `pip install messagex-client` command will be appropriate after the production release is announced.
+
+### Install from the repository
+
+For development before a production release:
 
 ```bash
 python -m pip install "git+https://github.com/sameeryadav05/MessageX.git@tilak#subdirectory=packages/python-sdk"
 ```
 
-After the package is published, install the stable distribution from PyPI:
+The distribution name is `messagex-client`; import it as:
 
-```bash
-python -m pip install messagex-client
+```python
+from messagex import MessageX
 ```
 
-Requires **Python 3.9 or newer**. The package has no third-party runtime dependencies. You still need a running MessageX broker and valid broker credentials. The standard Docker deployment exposes the broker on `localhost:5678`.
+**This is an asyncio library.** Network methods are coroutines. Call them with `await` inside an `async def` function and start the program with `asyncio.run()`. In Jupyter/IPython, use top-level `await`.
 
-## Quick start
+## 2. Configure credentials
 
-Set credentials as environment variables rather than hard-coding them:
+Keep connection details outside source code. Set environment variables before starting your application.
+
+Linux / macOS:
 
 ```bash
-# Linux / macOS
+export MESSAGEX_HOST="127.0.0.1"
+export MESSAGEX_PORT="5678"
 export MESSAGEX_USER="your-username"
 export MESSAGEX_PASSWORD="your-password"
 ```
 
-PowerShell:
+Windows PowerShell:
 
 ```powershell
+$env:MESSAGEX_HOST = "127.0.0.1"
+$env:MESSAGEX_PORT = "5678"
 $env:MESSAGEX_USER = "your-username"
 $env:MESSAGEX_PASSWORD = "your-password"
 ```
 
-### Consumer
+Read the values in Python:
+
+```python
+import os
+from messagex import MessageX
+
+def make_client() -> MessageX:
+    return MessageX(
+        host=os.environ.get("MESSAGEX_HOST", "127.0.0.1"),
+        port=int(os.environ.get("MESSAGEX_PORT", "5678")),
+        username=os.environ["MESSAGEX_USER"],
+        password=os.environ["MESSAGEX_PASSWORD"],
+    )
+```
+
+Never commit credentials, API tokens, or production passwords to source control. Use your deployment platform's secret manager for deployed services.
+
+## 3. Connect and authenticate
+
+### Quick start: consumer
+
+Create `consumer.py`:
 
 ```python
 import asyncio
-import os
 from messagex import MessageX
 
 async def handle(message):
@@ -50,17 +115,14 @@ async def handle(message):
     await message.ack()
 
 async def main():
-    async with MessageX(
-        host="127.0.0.1",
-        username=os.environ["MESSAGEX_USER"],
-        password=os.environ["MESSAGEX_PASSWORD"],
-    ) as client:
+    async with make_client() as client:
         await client.exchange.declare("orders.exchange", "direct", durable=True)
         await client.queue.declare("orders", durable=True)
         await client.exchange.bind(
             "orders.exchange", "orders", "orders.created"
         )
         await client.consume("orders", handle)
+        print("Waiting for messages. Press Ctrl+C to stop.")
         await asyncio.Event().wait()
 
 if __name__ == "__main__":
@@ -70,46 +132,249 @@ if __name__ == "__main__":
         pass
 ```
 
-### Producer
+### Quick start: producer
+
+Create `producer.py`:
 
 ```python
 import asyncio
-import os
 from messagex import MessageX
 
 async def main():
-    async with MessageX(
-        host="127.0.0.1",
-        username=os.environ["MESSAGEX_USER"],
-        password=os.environ["MESSAGEX_PASSWORD"],
-    ) as client:
+    async with make_client() as client:
         result = await client.publish(
             "orders.exchange",
-            {"orderId": "ORD-1001", "status": "created"},
+            {"orderId": "ORD-1001", "amount": 2500, "status": "created"},
             routing_key="orders.created",
+            headers={"source": "checkout-service"},
         )
         print("Routed to", result.routed_queues, "queue(s)")
 
 asyncio.run(main())
 ```
 
-Run the consumer first, then run the producer in another terminal.
+Run the consumer first, then run the producer in another terminal. Both examples use the `make_client()` helper from the credentials section.
 
-## Core capabilities
+### Manual connection lifecycle
 
-- Async connection lifecycle with context-manager support.
-- Queue and exchange declaration/deletion.
-- Direct, fanout, topic, and headers exchanges.
-- Bind and unbind operations.
-- JSON-serializable message publishing with optional headers.
-- Callback-based consumers and explicit ACK/NACK.
-- Delivery-count-based retry and dead-letter queue configuration.
-- Typed message objects, result objects, and SDK exceptions.
-- Client events for connection lifecycle, messages, warnings, and consumer errors.
+A context manager is recommended because it closes the connection even when an exception occurs:
 
-## Delivery handling
+```python
+async with MessageX(
+    host="127.0.0.1",
+    username="app-user",
+    password=os.environ["MESSAGEX_PASSWORD"],
+) as client:
+    # Connected and authenticated inside this block.
+    ...
+# Connection closed automatically.
+```
 
-The SDK does not automatically acknowledge messages. ACK only after successful processing:
+You can also manage the lifecycle manually:
+
+```python
+client = make_client()
+await client.connect()
+try:
+    ...
+finally:
+    await client.close()
+```
+
+`connect()` is safe to call more than once; concurrent calls share a single TCP connection. Check `client.is_connected` and `client.is_authenticated` to inspect connection state.
+
+## 4. Understand broker resources
+
+```text
+ Producer ──publish──▶ Exchange ──binding / routing key──▶ Queue ──deliver──▶ Consumer
+                                                                         ACK / NACK
+```
+
+| Resource | Purpose |
+| --- | --- |
+| **Exchange** | Receives published messages and selects destination queues based on its type and bindings. |
+| **Queue** | Holds messages until consumers receive and settle them. |
+| **Binding** | Connects an exchange to a queue, optionally using a routing key or arguments. |
+| **Routing key** | A label supplied by the publisher and evaluated by the exchange's routing strategy. |
+| **Consumer** | Application code subscribed to a queue. It must ACK or NACK each delivery. |
+| **Delivery tag** | Identifier for an in-flight delivery, used when settling that delivery. |
+
+A message is published to an **exchange**, not directly to a queue. If no binding matches, publishing can succeed with `routed_queues == 0`.
+
+## 5. Declare a queue
+
+Declare queues during service startup:
+
+```python
+await client.queue.declare(
+    "orders",
+    durable=True,
+    exclusive=False,
+    auto_delete=False,
+    max_delivery_count=5,
+    dead_letter_queue="orders.dead",
+)
+```
+
+| Option | Meaning |
+| --- | --- |
+| `name` | Queue name. |
+| `durable` | Persist the queue declaration in the broker's PostgreSQL storage. |
+| `exclusive` | Restrict access to the connection that declared the queue. |
+| `auto_delete` | Queue declaration option stored by the broker. |
+| `max_delivery_count` | Positive delivery limit used by retry and dead-letter handling. |
+| `dead_letter_queue` | Destination queue when the delivery limit is reached. |
+
+Options omitted (or passed as `None`) are not sent, so the broker applies its defaults. An exclusive queue is associated with its declaring connection; other connections cannot consume from, bind to, or delete it.
+
+The broker response is returned as a plain Python `dict`:
+
+```python
+info = await client.queue.declare("orders", durable=True)
+print(info)
+```
+
+Delete a queue with:
+
+```python
+await client.queue.delete("orders")
+```
+
+Queue deletion is destructive. Confirm that no producer or consumer still depends on the queue before deleting it.
+
+## 6. Declare an exchange
+
+```python
+await client.exchange.declare("orders.exchange", "topic", durable=True)
+```
+
+MessageX supports four exchange types:
+
+| Type | Routing behavior | Example |
+| --- | --- | --- |
+| `direct` | Exact routing-key match. | `orders.created` matches `orders.created`. |
+| `fanout` | Routes to every queue bound to the exchange. | Routing key is not used for selection. |
+| `topic` | Dot-separated pattern matching; `*` matches one word and `#` matches zero or more words. | `orders.*` matches `orders.created`. |
+| `headers` | Compares message headers with binding arguments. | `{"region": "apac"}`. |
+
+Delete an exchange with:
+
+```python
+await client.exchange.delete("orders.exchange")
+```
+
+## 7. Bind a queue to an exchange
+
+A binding tells an exchange which queue should receive matching messages.
+
+### Direct binding
+
+```python
+await client.exchange.declare("tasks", "direct")
+await client.queue.declare("emails")
+await client.exchange.bind("tasks", "emails", "send.email")
+await client.publish("tasks", {"to": "user@example.com"}, routing_key="send.email")
+```
+
+### Topic binding
+
+```python
+await client.exchange.declare("orders.events", "topic")
+await client.queue.declare("all-orders")
+await client.exchange.bind("orders.events", "all-orders", "orders.*")
+await client.publish("orders.events", {"id": 1}, routing_key="orders.created")
+await client.publish("orders.events", {"id": 2}, routing_key="orders.cancelled")
+```
+
+### Fanout binding
+
+```python
+await client.exchange.declare("events", "fanout")
+for queue_name in ("audit", "analytics", "notifications"):
+    await client.queue.declare(queue_name)
+    await client.exchange.bind("events", queue_name)
+await client.publish("events", {"type": "user.signup"})
+```
+
+### Headers binding
+
+```python
+await client.exchange.declare("reports", "headers")
+await client.queue.declare("pdf-reports")
+await client.exchange.bind(
+    "reports",
+    "pdf-reports",
+    arguments={"format": "pdf"},
+)
+await client.publish("reports", {"report_id": 7}, headers={"format": "pdf"})
+```
+
+For headers exchanges, binding arguments are compared with message headers. The exact matching behavior is implemented by the broker; consult the protocol and broker reference for the supported matching rules.
+
+Remove a binding using the same exchange, queue, routing key, and arguments:
+
+```python
+await client.exchange.unbind("orders.events", "all-orders", "orders.*")
+```
+
+## 8. Publish a message
+
+```python
+result = await client.publish(
+    "orders.exchange",
+    {"orderId": "ORD-1001", "amount": 2500, "status": "created"},
+    routing_key="orders.created",
+    headers={"source": "checkout-service"},
+)
+
+print(result.exchange_name)
+print(result.routed_queues)
+```
+
+- The message can be a `dict`, `list`, `str`, number, `bool`, or `None`.
+- The body must be JSON-serializable. Values such as `datetime`, `Decimal`, `set`, and custom objects must be converted first.
+- A message larger than `max_frame_size` raises `ValueError`.
+- `routed_queues == 0` means the broker accepted the publish command but no queue matched the exchange bindings.
+
+The broker persists routed message records before dispatching available messages to consumers. `routed_queues` is the number of matched destination queues, not the number of consumers.
+
+## 9. Consume messages
+
+Register a callback against an existing queue:
+
+```python
+async def handle(message):
+    print("Body:", message.body)
+    print("Headers:", message.headers)
+    print("Routing key:", message.routing_key)
+    print("Delivery count:", message.delivery_count)
+    await message.ack()
+
+subscription = await client.consume("orders", handle)
+print(subscription.consumer_tag)
+```
+
+`consume()` returns a `ConsumerSubscription` with `consumer_tag`, `queue_name`, and an asynchronous `cancel()` method.
+
+### Delivered message fields
+
+| Attribute / method | Description |
+| --- | --- |
+| `message.body` | Decoded message body. |
+| `message.headers` | Message headers dictionary. |
+| `message.routing_key` | Routing key used by the publisher. |
+| `message.message_id` | Broker message identifier. |
+| `message.delivery_count` | Number of times the message has been delivered. |
+| `message.created_at` | Message creation timestamp. |
+| `message.queue_name` | Queue from which the message was delivered. |
+| `message.consumer_tag` | Consumer subscription identifier. |
+| `message.delivery_tag` | Identifier used to ACK or NACK this delivery. |
+| `await message.ack()` | Acknowledge successful processing. |
+| `await message.nack(requeue=True)` | Reject and requeue, or reject without requeue when `False`. |
+
+### Always ACK or NACK
+
+The SDK does not acknowledge messages automatically. Settle each message after your application has decided whether processing succeeded:
 
 ```python
 async def handle(message):
@@ -123,9 +388,103 @@ async def handle(message):
         raise
 ```
 
-The broker currently uses a prefetch count of one per consumer connection. Requeued messages can be delivered more than once, so make handlers idempotent when they perform external side effects. The broker supports a maximum delivery count and a configured dead-letter queue.
+The broker currently uses a prefetch count of one per consumer connection and queue. An unsettled delivery can therefore hold up later messages for that consumer.
 
-## Connection options
+Handlers may be `async def` functions or synchronous functions that return an awaitable. A synchronous handler runs on the event loop, so keep it fast. Move blocking work to a thread with `await asyncio.to_thread(...)`.
+
+If a handler raises, the SDK emits a `consumer_error` event and continues handling later deliveries.
+
+### Cancel a consumer
+
+```python
+await subscription.cancel()  # Stop this subscription; keep the connection open.
+await client.close()         # Close the connection when finished.
+```
+
+Cancellation stops the subscription. Settle any message already delivered before shutting down when possible.
+
+## 10. ACK: acknowledge successful processing
+
+Call `message.ack()` only after the work your application considers successful has completed:
+
+```python
+async def handle(message):
+    await save_order_to_database(message.body)
+    await message.ack()
+```
+
+The broker verifies that the delivery tag belongs to the current connection. A valid ACK removes the message record and releases the consumer's prefetch slot.
+
+Do not ACK before completing important side effects. MessageX does not provide a distributed transaction between the broker and your application database.
+
+## 11. NACK: reject a delivery
+
+Use `message.nack()` when processing fails:
+
+```python
+async def handle(message):
+    try:
+        await process_order(message.body)
+        await message.ack()
+    except TemporaryError:
+        await message.nack(requeue=True)
+    except Exception:
+        await message.nack(requeue=False)
+        raise
+```
+
+| Call | Broker behavior |
+| --- | --- |
+| `nack(requeue=True)` | Returns the message to the ready state while it is under the configured delivery limit. |
+| `nack(requeue=True)` at the delivery limit | Moves the message to the configured dead-letter queue, or marks it dead if no DLQ is configured. |
+| `nack(requeue=False)` | Deletes/discards the message record. |
+
+A message can be delivered more than once after requeue, timeout, or connection loss. Make handlers idempotent when they perform external side effects.
+
+## 12. Cancel a consumer
+
+```python
+subscription = await client.consume("orders", handle)
+# Later:
+await subscription.cancel()
+```
+
+Cancellation stops that consumer subscription without closing the TCP connection. An already delivered in-flight message can still be settled using its ACK/NACK methods.
+
+## 13. Delete queues and exchanges
+
+```python
+await client.queue.delete("orders")
+await client.exchange.delete("orders.exchange")
+```
+
+These operations are destructive. Deleting a queue also removes its associated message and binding records according to the broker's database relationships. Delete resources only after confirming that no producer or consumer still depends on them.
+
+## 14. Close the connection cleanly
+
+With a context manager, the SDK closes the connection automatically:
+
+```python
+async with make_client() as client:
+    subscription = await client.consume("orders", handle)
+    await run_service()
+    await subscription.cancel()
+```
+
+For manual lifecycle management:
+
+```python
+await client.connect()
+try:
+    subscription = await client.consume("orders", handle)
+    await run_service()
+finally:
+    await client.close()
+```
+
+On connection loss, the broker releases unsettled deliveries owned by that connection. The SDK does not automatically reconnect or restore subscriptions; the application must connect again and register its consumers again.
+
+## 15. Client options
 
 ```python
 client = MessageX(
@@ -140,20 +499,209 @@ client = MessageX(
 )
 ```
 
-Use `async with MessageX(...)` to close the connection automatically, or call `await client.connect()` and `await client.close()` for manual lifecycle management.
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `host` | `str` | Required | Broker hostname or IP address. |
+| `username` | `str` | Required | Broker username. |
+| `password` | `str` | Required | Broker password. |
+| `port` | `int` | `5678` | Broker TCP port. |
+| `client_name` | `str` | `messagex-python-client` | Client identifier shown to the broker. |
+| `connect_timeout` | `float` | `10.0` | TCP connection timeout in seconds. |
+| `request_timeout` | `float` | `15.0` | Per-command response timeout in seconds. |
+| `max_frame_size` | `int` | `1048576` | Maximum frame payload size in bytes. |
 
-## Important limitations
+## 16. SDK events and errors
 
-- The SDK does not automatically reconnect or restore consumer subscriptions after a disconnect; the application must reconnect and subscribe again.
-- The broker TCP transport currently does not provide TLS encryption. Use a private network, VPN, or SSH tunnel for remote connections.
-- ACK/NACK does not create a distributed transaction with your application database.
-- The current consumer prefetch count is one per connection and queue.
+The client exposes `on()`, `once()`, and `off()` event methods. Listeners can be synchronous or asynchronous.
 
-## API and examples
+| Event | Arguments | When |
+| --- | --- | --- |
+| `connect` | none | Connection is established and authenticated. |
+| `disconnect` | none | Connection drops unexpectedly; not emitted by your own `close()`. |
+| `close` | none | The explicit close operation finishes. |
+| `message` | `DeliveredMessage` | A message is delivered, in addition to the consumer callback. |
+| `event` | `dict` | Another broker event is received. |
+| `consumer_error` | exception, message | A consumer callback raises. |
+| `warning` | `Exception` | A non-fatal problem occurs. |
+| `error` | `Exception` | A connection or protocol error occurs. |
 
-For the complete API, configuration, error handling, recipes (including reconnect and FastAPI), and troubleshooting, see the [Python SDK README](https://github.com/sameeryadav05/MessageX/blob/tilak/packages/python-sdk/README.md).
+Example:
 
-- [Python SDK source](https://github.com/sameeryadav05/MessageX/tree/tilak/packages/python-sdk)
-- [Publishing guide](https://github.com/sameeryadav05/MessageX/blob/tilak/packages/python-sdk/PUBLISHING.md)
-- [TCP protocol reference](/docs/architecture/protocol)
+```python
+client.on("disconnect", lambda: print("Connection lost"))
+client.on(
+    "consumer_error",
+    lambda exc, msg: print(f"Handler failed for {msg.message_id}: {exc!r}"),
+)
+client.on("warning", lambda err: print("Warning:", err))
+```
+
+If no `error` listener is registered, errors are emitted as warnings. If no warning listener is registered either, they are written to the `messagex` logger.
+
+All SDK exceptions inherit from `MessageXError`:
+
+| Exception | Meaning |
+| --- | --- |
+| `MessageXError` | Base class for SDK errors. |
+| `MessageXConnectionError` | Connection failed, is unavailable, or was lost. |
+| `MessageXTimeoutError` | A connection or command exceeded its timeout. |
+| `MessageXBrokerError` | The broker rejected a command; inspect `.code` and the exception message. |
+
+```python
+from messagex import (
+    MessageXBrokerError,
+    MessageXConnectionError,
+    MessageXTimeoutError,
+)
+
+try:
+    await client.queue.declare("orders", durable=True)
+except MessageXBrokerError as exc:
+    print("Broker rejected the command:", exc.code, str(exc))
+except MessageXTimeoutError:
+    print("The broker did not respond before the timeout")
+except MessageXConnectionError as exc:
+    print("Connection problem:", exc)
+```
+
+Invalid arguments raise standard Python exceptions such as `TypeError` or `ValueError`.
+
+## 17. Current limitations
+
+- No automatic reconnect or consumer subscription restoration.
+- No TLS encryption in the broker TCP transport. Use a private network, VPN, SSH tunnel, and firewall rules for remote deployments; do not expose the broker port directly to an untrusted network.
+- No distributed transaction between ACK/NACK and your application's database.
+- No batch publishing, management HTTP API client, or synchronous/blocking SDK interface.
+- The current broker consumer prefetch count is one per connection and queue.
+- The SDK implements MessageX protocol v1 commands for connection/authentication, queue and exchange management, bindings, publishing, consuming, ACK, NACK, and cancellation.
+
+## 18. Examples, troubleshooting, and source
+
+### Auto-reconnect recipe
+
+The SDK does not reconnect or restore subscriptions automatically. After a disconnect, create or reconnect a client and register consumers again. A retry loop with exponential backoff is one approach:
+
+```python
+import asyncio
+from messagex import MessageXConnectionError, MessageXTimeoutError
+
+async def run_consumer(stop: asyncio.Event):
+    delay = 1.0
+    while not stop.is_set():
+        client = make_client()
+        disconnected = asyncio.Event()
+        client.on("disconnect", disconnected.set)
+        try:
+            await client.connect()
+            await client.consume("orders", handle)
+            delay = 1.0
+
+            waiter = asyncio.create_task(disconnected.wait())
+            stopper = asyncio.create_task(stop.wait())
+            done, pending = await asyncio.wait(
+                {waiter, stopper},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+        except (MessageXConnectionError, MessageXTimeoutError) as exc:
+            print("Connection failed:", exc)
+        finally:
+            await client.close()
+
+        if not stop.is_set():
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30.0)
+```
+
+### Graceful shutdown
+
+```python
+import asyncio
+import signal
+
+async def main():
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError:
+            # Signal handler registration differs on Windows.
+            pass
+
+    async with make_client() as client:
+        subscription = await client.consume("orders", handle)
+        await stop.wait()
+        await subscription.cancel()
+```
+
+### Publish from FastAPI
+
+Create one client during application startup and reuse it for requests:
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    client = make_client()
+    await client.connect()
+    app.state.messagex = client
+    try:
+        yield
+    finally:
+        await client.close()
+
+app = FastAPI(lifespan=lifespan)
+
+@app.post("/orders")
+async def create_order(order: dict, request: Request):
+    result = await request.app.state.messagex.publish(
+        "orders.exchange", order, routing_key="orders.created"
+    )
+    return {"queued": result.routed_queues > 0}
+```
+
+### Troubleshooting
+
+| Symptom | Likely cause and next step |
+| --- | --- |
+| Connection refused | Broker is not running, host/port is wrong, or a firewall blocks the connection. Check the broker container and TCP port `5678`. |
+| Connection timeout | The host is unreachable or the endpoint is not responding. Check network routing and the configured timeout. |
+| Broker error during authentication | Check the broker username and password; inspect the broker error code. |
+| Command says to connect first | Call and await `client.connect()` before issuing commands. |
+| Command says client is not authenticated | Wait for `await client.connect()` to finish before using the client. |
+| Publish returns zero routed queues | Check the exchange, binding, exchange type, and routing key. |
+| Consumer receives one message and then appears idle | The handler may not be ACKing or NACKing the delivery. Settle each message. |
+| Message serialization raises `TypeError` | Convert values such as `datetime` or `Decimal` to JSON-compatible values. |
+| Coroutine was never awaited | Add `await` to asynchronous SDK calls. |
+| Handler blocks other messages | Move blocking work off the event loop, for example with `await asyncio.to_thread(...)`. |
+| `asyncio.run()` reports an active event loop | In Jupyter or an async framework, await the coroutine from the existing event loop instead. |
+
+### API summary
+
+| API | Description |
+| --- | --- |
+| `MessageX(...)` | Create a client with host, credentials, port, timeouts, client name, and frame-size options. |
+| `await client.connect()` / `await client.close()` | Open/authenticate or close the TCP connection. |
+| `await client.publish(exchange_name, message, routing_key="", headers=None)` | Publish JSON-compatible data; returns `PublishResult`. |
+| `await client.consume(queue_name, on_message)` | Register a callback; returns `ConsumerSubscription`. |
+| `await client.queue.declare(...)` / `delete(...)` | Declare or delete a queue. |
+| `await client.exchange.declare(...)` / `delete(...)` | Declare or delete an exchange. |
+| `await client.exchange.bind(...)` / `unbind(...)` | Add or remove an exchange-to-queue binding. |
+| `client.on(event, fn)` / `once(...)` / `off(...)` | Register, register once, or remove an event listener. |
+
+Exported types and classes include `MessageX`, `MessageXError`, `MessageXConnectionError`, `MessageXTimeoutError`, `MessageXBrokerError`, `DeliveredMessage`, `ConsumerSubscription`, `PublishResult`, `ExchangeType`, and `MessageHandler`.
+
+### References
+
+- [Python SDK source](https://github.com/sameeryadav05/MessageX/tree/main/packages/python-sdk)
+- [Python SDK README](https://github.com/sameeryadav05/MessageX/blob/main/packages/python-sdk/README.md)
+- [Python SDK publishing guide](https://github.com/sameeryadav05/MessageX/blob/main/packages/python-sdk/PUBLISHING.md)
+- [TestPyPI: messagex-client 0.1.0](https://test.pypi.org/project/messagex-client/0.1.0/)
 - [JavaScript / TypeScript SDK](/docs/sdk/javascript)
+- [Java SDK status](/docs/sdk/java)
+- [TCP protocol reference](/docs/architecture/protocol)

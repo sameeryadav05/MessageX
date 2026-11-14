@@ -325,7 +325,7 @@ SDK resources:
 - [SDK source](./packages/javascript-sdk)
 - [Real broker integration example](./packages/javascript-sdk/examples/real-broker-test.mjs)
 
-> **SDK scope:** The current package is a Node.js SDK that works in JavaScript and TypeScript. It is not a browser SDK. Python and Java SDKs are planned, not yet published.
+> **SDK scope:** MessageX provides an official Node.js SDK for JavaScript/TypeScript and an asyncio-based Python SDK. The Python distribution is named `messagex-client` and imports as `messagex`; see the [Python SDK guide](./packages/python-sdk/README.md) and [publishing guide](./packages/python-sdk/PUBLISHING.md). The Python package's first PyPI release is being prepared. The Node.js SDK is not a browser SDK. A Java SDK is not currently available.
 
 ---
 

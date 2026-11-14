@@ -61,13 +61,21 @@ test("MessageX SDK interoperates with the real broker", {
       headers: { source: "js-sdk-integration" }
     });
 
-    await Promise.race([
-      messagesReady,
-      new Promise((_, reject) => setTimeout(
-        () => reject(new Error("Timed out waiting for real broker redelivery")),
-        10_000
-      ))
-    ]);
+    let timeout;
+    try {
+      await Promise.race([
+        messagesReady,
+        new Promise((_, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("Timed out waiting for real broker redelivery")),
+            10_000
+          );
+          timeout.unref();
+        })
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
 
     const attempts = received.filter((item) => item.body?.kind === "retry");
     assert.equal(attempts.length, 2);

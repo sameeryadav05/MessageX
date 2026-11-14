@@ -30,11 +30,21 @@ Zero runtime dependencies · fully typed (`py.typed`) · same protocol (v1) as t
 
 ## Installation
 
+**PyPI release status:** install from PyPI with the command below after the first
+MessageX Python SDK release has been published. Until then, install the package
+directly from the repository branch:
+
 ```bash
-pip install messagex-client
+python -m pip install "git+https://github.com/sameeryadav05/MessageX.git@tilak#subdirectory=packages/python-sdk"
 ```
 
-The package name on PyPI is `messagex-client`; you import it as `messagex`:
+After publication, the normal installation command will be:
+
+```bash
+python -m pip install messagex-client
+```
+
+The distribution name is `messagex-client`; you import it as `messagex`:
 
 ```python
 from messagex import MessageX

@@ -35,8 +35,26 @@ const capabilities = [
 ];
 
 export default function Home() {
+  const structuredData = {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'MessageX',
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'Cross-platform',
+    description: 'A self-hosted message broker with a TCP protocol, PostgreSQL persistence, Docker deployment, and an official Node.js SDK.',
+    url: 'https://messagex.imsameer.me',
+    codeRepository: 'https://github.com/sameeryadav05/MessageX',
+    softwareHelp: 'https://messagex.imsameer.me/docs',
+  };
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-fd-background text-fd-foreground">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(structuredData).replace(/</g, '\\u003c'),
+        }}
+      />
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-[620px] bg-[radial-gradient(ellipse_at_top,_color-mix(in_oklab,var(--color-fd-primary)_17%,transparent),transparent_68%)]" />
       <header className="relative mx-auto flex max-w-7xl items-center justify-between px-6 py-7 lg:px-10">
         <Link href="/" className="flex items-center gap-3">

@@ -1,0 +1,78 @@
+---
+title: Run with Docker Compose
+description: Start the repository's broker, dashboard, and PostgreSQL services from source.
+---
+
+Use this path when you want to build MessageX from the checked-out repository rather than using the launcher.
+
+## 1. Clone the repository
+
+```bash
+git clone https://github.com/sameeryadav05/MessageX.git
+cd MessageX
+```
+
+## 2. Create the environment file
+
+macOS / Linux:
+
+```bash
+cp .env.compose.example .env
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.compose.example .env
+```
+
+Edit `.env` and replace the example database and administrator passwords with strong unique values. Never commit the real `.env` file.
+
+## 3. Build and start services
+
+```bash
+docker compose up -d --build
+```
+
+The Compose configuration defines:
+
+| Service | Purpose |
+| --- | --- |
+| `postgres` | PostgreSQL 17 with a named persistent volume |
+| `broker` | MessageX broker, TCP listener, HTTP health/management server |
+| `dashboard` | React dashboard served by Nginx |
+| `admin-init` | One-shot administrator bootstrap task |
+
+The broker waits for PostgreSQL's health check. The dashboard waits for the broker's readiness check. The admin initialization service runs after the broker is healthy.
+
+## 4. Verify the deployment
+
+```bash
+docker compose ps
+docker compose logs -f broker
+```
+
+Open the dashboard at [http://localhost:15672](http://localhost:15672). The broker's TCP endpoint is `localhost:5678`.
+
+In this Compose file, PostgreSQL is bound to `127.0.0.1:5433` on the host and listens on `5432` inside the Docker network.
+
+## 5. Stop the deployment
+
+```bash
+docker compose down
+```
+
+This stops and removes containers and the Compose network while preserving named volumes. The following command also removes the persisted PostgreSQL data volume and should only be used when you intentionally want to destroy the local database:
+
+```bash
+docker compose down -v
+```
+
+## Published images vs local builds
+
+The repository Compose file defaults to locally built images:
+
+- `messagex-broker:local`
+- `messagex-dashboard:local`
+
+You can override these with `BROKER_IMAGE` and `DASHBOARD_IMAGE` in `.env`. See [published Docker images](/docs/deployment/docker-images).

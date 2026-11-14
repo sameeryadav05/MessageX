@@ -1,0 +1,78 @@
+---
+title: Management HTTP API
+description: Dashboard-facing HTTP endpoints provided by the broker process.
+---
+
+The MessageX broker starts an HTTP server alongside its TCP listener. The React dashboard uses this API for management views and actions. The API is part of the broker process; it is not a separate broker container in the repository Compose file.
+
+By default, the broker HTTP server listens on port `3000` inside the container. The repository Compose configuration exposes it to the internal Docker network but does not publish it directly to the host.
+
+## Health endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/ping` | Lightweight ping response |
+| `GET` | `/health` | Basic broker HTTP health |
+| `GET` | `/health/ready` | Readiness check used by the Compose broker health check |
+
+## Management authentication
+
+The broker mounts its browser-session routes under `/api/auth`. Other `/api` management routes are protected by the management authentication middleware.
+
+Use the dashboard's supported login/session flow rather than assuming management endpoints are anonymous.
+
+## Resource endpoints
+
+### Queues
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/queues` | List queues |
+| `GET` | `/api/queues/:name` | Get one queue |
+| `POST` | `/api/queues` | Declare a queue |
+| `DELETE` | `/api/queues/:name` | Delete a queue |
+| `GET` | `/api/queues/:name/stats` | Read message counts by state |
+| `GET` | `/api/queues/:name/messages` | Read queue messages |
+
+Queue creation accepts `name` and optional `durable`, `autoDelete`, `maxDeliveryCount`, and `deadLetterQueue` fields.
+
+### Exchanges and bindings
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/exchanges` | List exchanges |
+| `POST` | `/api/exchanges` | Declare an exchange |
+| `DELETE` | `/api/exchanges/:name` | Delete an exchange |
+| `GET` | `/api/bindings` | List bindings |
+| `POST` | `/api/bindings` | Create a binding |
+| `DELETE` | `/api/bindings` | Remove a binding |
+
+Exchange creation accepts `name`, `type`, and optional `durable`. Supported exchange types are `direct`, `fanout`, `topic`, and `headers`.
+
+Binding creation accepts `exchangeName`, `queueName`, an optional `routingKey`, and optional `arguments`.
+
+### Publishing
+
+`POST /api/publish` accepts `exchangeName`, a JSON `message`, and optional `routingKey` and `headers`.
+
+This endpoint uses the same broker message repository and routing implementation as TCP publish commands.
+
+## Overview and operational endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/overview` | Broker resource and message counts |
+| `GET` | `/api/connections` | Active connection information |
+| `GET` | `/api/health/detailed` | Detailed process and broker health |
+| `GET` | `/api/metrics` | Broker metrics |
+| `GET` | `/api/database/pool` | PostgreSQL pool information |
+
+These operational routes require management authentication like the other `/api` endpoints.
+
+## Implementation
+
+The HTTP server reuses broker repositories for queues, exchanges, bindings, and messages. It also reads the PostgreSQL pool for overview and statistics, and references the active connection and consumer managers for live broker state.
+
+Source: [`apps/broker/src/server/http.server.ts`](https://github.com/sameeryadav05/MessageX/blob/main/apps/broker/src/server/http.server.ts).
+
+This reference reflects routes registered in the current repository source. Check the implementation and validation logic before building an external integration against these endpoints.

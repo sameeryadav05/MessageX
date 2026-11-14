@@ -1,0 +1,100 @@
+---
+title: Documentation SEO and discoverability
+description: Technical SEO, structured metadata, sitemap, Search Console, and content practices for MessageX documentation.
+---
+
+Search optimization is a long-term process. The documentation site now includes a technical SEO foundation, but no implementation can guarantee a first-place search ranking. Rankings depend on relevance, competition, authority, crawlability, page experience, and the quality of content over time.
+
+## Technical SEO already configured
+
+The Next.js app includes:
+
+- A canonical site origin: `https://messagex.imsameer.me`.
+- Global title, description, keywords, Open Graph, and Twitter metadata.
+- Page-specific titles and descriptions for documentation routes.
+- Per-page canonical URLs and article Open Graph metadata.
+- A generated `/sitemap.xml` route.
+- A generated `/robots.txt` route that references the sitemap.
+- Search-engine robots directives that allow public documentation to be indexed.
+
+Review these files when changing the public domain:
+
+- `app/layout.tsx`
+- `app/docs/[[...slug]]/page.tsx`
+- `app/sitemap.ts`
+- `app/robots.ts`
+
+## 1. Verify the production domain
+
+Before submitting the site to search engines:
+
+1. Deploy the documentation website to Vercel.
+2. Connect `messagex.imsameer.me` and confirm DNS verification.
+3. Confirm HTTPS works without certificate warnings.
+4. Open `/robots.txt` and `/sitemap.xml` on the production domain.
+5. Open several documentation pages directly and confirm they return HTTP 200.
+
+Do not submit localhost or preview deployment URLs as the canonical website.
+
+## 2. Register Google Search Console
+
+1. Open [Google Search Console](https://search.google.com/search-console/).
+2. Add a URL-prefix property for `https://messagex.imsameer.me`.
+3. Complete the verification method Google provides.
+4. Open **Sitemaps** and submit `https://messagex.imsameer.me/sitemap.xml`.
+5. Use **URL Inspection** for the homepage and important guides.
+6. Review indexing, page experience, and enhancement reports over time.
+
+Google may take time to crawl and index new pages. A submitted sitemap is a discovery hint, not a guarantee of indexing.
+
+## 3. Write pages for developer search intent
+
+Each page should answer one clear developer question. Examples:
+
+- How to install and run MessageX with Docker.
+- How to connect a Node.js application to MessageX.
+- How to declare a queue and bind it to an exchange.
+- How ACK, NACK, retries, and dead-letter queues work.
+- How MessageX's TCP frame protocol is structured.
+
+Use a unique title and description for each page. Put the primary subject in the page title, opening paragraph, and a clear H1. Use descriptive H2/H3 headings and link related guides together.
+
+Avoid keyword stuffing, repetitive boilerplate, and claims that the codebase does not support.
+
+## 4. Keep technical content trustworthy
+
+The best search result for an engineering question is a page that solves it accurately. Keep examples aligned with the actual SDK and broker source.
+
+- Include complete commands and expected results where practical.
+- Label planned SDKs as planned until official packages are released.
+- State limitations such as lack of TCP TLS or automatic SDK reconnect.
+- Link to relevant source modules and release notes.
+- Update Docker tags when publishing new images.
+- Remove or redirect obsolete pages instead of leaving duplicate content.
+
+## 5. Improve snippets and sharing previews
+
+Use meaningful page titles and descriptions. Open Graph metadata is generated for documentation pages so shared links can show a useful title and summary.
+
+When adding diagrams or screenshots:
+
+- Provide concise, descriptive alternative text.
+- Avoid embedding important explanatory text only inside an image.
+- Keep image file sizes reasonable and use appropriate dimensions.
+- Use captions to explain what the image demonstrates.
+
+## 6. Measure and iterate
+
+Review Search Console after the site has been live and crawled:
+
+- Queries and pages receiving impressions.
+- Click-through rate for pages with impressions.
+- Average position trends (not as a standalone success metric).
+- Indexing errors and excluded URLs.
+- Search terms that reveal missing documentation topics.
+
+Use those findings to improve the pages that already attract relevant visitors and identify unanswered questions.
+
+## Important
+
+SEO cannot promise that MessageX will rank first. A technically correct site, useful documentation, fast pages, accessible design, reputable references, and sustained content maintenance improve the chances of earning relevant search visibility.

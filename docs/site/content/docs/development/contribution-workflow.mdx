@@ -1,0 +1,90 @@
+---
+title: Contribution workflow
+description: A safe branch, commit, validation, and pull-request workflow for MessageX contributors.
+---
+
+MessageX uses a feature-branch workflow. Keep changes focused, validate the affected package, and open a pull request for review.
+
+## 1. Start from the intended base
+
+For normal product contributions, the base branch is `main`. Documentation work being developed on a dedicated documentation branch should remain on that branch until its pull request is ready.
+
+Before switching branches, inspect your local work:
+
+```bash
+git status
+git branch --show-current
+git fetch origin
+```
+
+Do not use destructive commands such as `git reset --hard` or `git clean -fd` to make a branch switch succeed unless you intentionally want to discard the affected work.
+
+## 2. Create or switch to a feature branch
+
+Example for a new feature based on the latest `main`:
+
+```bash
+git switch main
+git pull --ff-only origin main
+git switch -c feat/short-description
+```
+
+Example for documentation work on the existing documentation branch:
+
+```bash
+git switch docs/nextjs-fumadocs
+git pull --ff-only
+```
+
+Use a descriptive prefix such as `feat/`, `fix/`, `docs/`, or `refactor/`.
+
+## 3. Keep changes focused
+
+- Broker behavior belongs under `apps/broker`.
+- Dashboard behavior belongs under `apps/dashboard`.
+- The official Node.js client belongs under `packages/javascript-sdk`.
+- Documentation website code and MDX belong under `docs/site`.
+
+Do not include secrets, `.env` files, `node_modules`, build output, generated `.source` files, or local database data.
+
+## 4. Validate before committing
+
+For documentation-only changes:
+
+```bash
+cd docs/site
+npm run typecheck
+npm run build
+```
+
+For broker and SDK changes, use the root workspace scripts documented in [Build and test](/docs/development/testing).
+
+Review the exact changes:
+
+```bash
+git status
+git diff --check
+git diff
+```
+
+## 5. Commit and push
+
+```bash
+git add <specific-files>
+git commit -m "docs: describe the documentation change"
+git push -u origin <your-branch>
+```
+
+Use a commit message that describes the change. Avoid staging the entire repository with `git add .` when unrelated local files may exist.
+
+## 6. Open a pull request
+
+Include:
+
+- A concise summary of the change and its motivation.
+- The affected packages or documentation sections.
+- Commands, tests, and builds that were run.
+- Screenshots for significant UI or documentation layout changes.
+- Known limitations or follow-up work.
+
+Target the branch that the work is intended to merge into. Do not merge a documentation feature branch into `main` until it has been reviewed and the checks are passing.

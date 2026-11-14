@@ -1,0 +1,56 @@
+---
+title: Published Docker images
+description: MessageX Docker Hub repositories and how to choose the correct image tags.
+---
+
+MessageX publishes its container images on Docker Hub. The repository README references these image repositories:
+
+| Component | Docker Hub image | README reference |
+| --- | --- | --- |
+| Launcher | [`sameeryadav2005/messagex-v2`](https://hub.docker.com/r/sameeryadav2005/messagex-v2) | Quickstart command uses `0.1.8` |
+| Broker | [`sameeryadav2005/messagex-broker-v2`](https://hub.docker.com/r/sameeryadav2005/messagex-broker-v2) | README badge reports broker `0.1.1` |
+| Dashboard | [`sameeryadav2005/messagex-dashboard-v2`](https://hub.docker.com/r/sameeryadav2005/messagex-dashboard-v2) | README badge reports dashboard `0.1.4` |
+
+The broker and dashboard values above are component versions shown by the repository README; do not assume they are also the Docker tag names. Check each Docker Hub Tags page before selecting a tag for a deployment.
+
+## Launcher image
+
+The documented quickstart pins the launcher image:
+
+```bash
+docker pull sameeryadav2005/messagex-v2:0.1.8
+```
+
+The launcher manages child containers and mounts the Docker socket. Review the [quickstart](/docs/getting-started/quickstart) and [production considerations](/docs/deployment/production) before running it.
+
+## Broker and dashboard images
+
+Browse the Docker Hub tags to select the intended release:
+
+- [Launcher tags](https://hub.docker.com/r/sameeryadav2005/messagex-v2/tags)
+- [Broker tags](https://hub.docker.com/r/sameeryadav2005/messagex-broker-v2/tags)
+- [Dashboard tags](https://hub.docker.com/r/sameeryadav2005/messagex-dashboard-v2/tags)
+
+Example pull syntax:
+
+```bash
+docker pull sameeryadav2005/messagex-broker-v2:<tag>
+docker pull sameeryadav2005/messagex-dashboard-v2:<tag>
+```
+
+Replace `<tag>` with a tag visible in Docker Hub. Pin release tags in production rather than relying on a floating tag.
+
+## Use published images with Compose
+
+The repository Compose file accepts image overrides:
+
+```dotenv
+BROKER_IMAGE=sameeryadav2005/messagex-broker-v2:<tag>
+DASHBOARD_IMAGE=sameeryadav2005/messagex-dashboard-v2:<tag>
+```
+
+Compose also contains local build definitions. Review the resolved Compose configuration before deploying, and confirm the intended image/tag is actually selected.
+
+## Registry and tag maintenance
+
+Docker Hub tags are mutable unless repository policy makes them immutable. For repeatable deployments, record the selected tag and image digest in your release notes and deployment configuration.

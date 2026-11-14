@@ -1,0 +1,96 @@
+---
+title: Contributor setup on a new machine
+description: Clone MessageX, configure a safe feature branch, and prepare your local development environment.
+---
+
+This guide assumes you are a contributor to `sameeryadav05/MessageX`.
+
+## 1. Confirm GitHub access
+
+Sign in to the GitHub account that has been granted repository access. A contributor with **Write** permission can push a feature branch to the upstream repository. If you only have read access, fork the repository and push your work to your fork instead.
+
+## 2. Clone and install
+
+```bash
+git clone https://github.com/sameeryadav05/MessageX.git
+cd MessageX
+npm ci
+```
+
+Use `npm ci` to install the exact dependency tree recorded in the root `package-lock.json`. Do not run `npm update` just to set up the repository.
+
+## 3. Configure local environment
+
+Review `.env.compose.example`, copy it to `.env`, and replace the example values.
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.compose.example .env
+```
+
+macOS / Linux:
+
+```bash
+cp .env.compose.example .env
+```
+
+Keep secrets in `.env`. Do not commit them or paste them into issues, logs, or documentation.
+
+## 4. Create a feature branch
+
+Check your working tree first:
+
+```bash
+git status
+git branch --show-current
+```
+
+Then create a branch from the latest upstream `main`:
+
+```bash
+git switch main
+git pull --ff-only origin main
+git switch -c feat/your-change
+```
+
+Never commit directly to `main`. Do not discard uncommitted work to switch branches; save or commit it first.
+
+## 5. Run the services
+
+Start PostgreSQL and the full containerized stack:
+
+```bash
+docker compose up -d --build
+```
+
+For source development, the root scripts include:
+
+```bash
+npm run dev:broker
+npm run dev:dashboard
+```
+
+The broker's development command is provided by the `@messagex/broker` workspace. The dashboard runs through its Vite development server. Ensure PostgreSQL and required environment variables are available before starting the broker.
+
+## 6. Build and test
+
+```bash
+npm run build:broker
+npm run test:broker
+npm run build:sdk
+npm run test:sdk
+npm run build:dashboard
+```
+
+Run the relevant tests for the code you changed. Check the root README and package scripts for additional project-specific instructions.
+
+## 7. Push your branch
+
+```bash
+git add <files-you-changed>
+git commit -m "feat: describe your change"
+git push -u origin feat/your-change
+```
+
+Open a Pull Request targeting `main`. Keep changes focused and avoid including generated files, local databases, build output, or environment secrets.

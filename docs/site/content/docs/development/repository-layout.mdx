@@ -1,0 +1,26 @@
+---
+title: Repository layout
+description: Where the MessageX broker, dashboard, SDK, launcher, and documentation application live.
+---
+
+MessageX is organized as a root npm-workspaces repository with a standalone documentation app under `docs/site`.
+
+| Path | Role |
+| --- | --- |
+| `apps/broker` | TCP broker, HTTP management server, protocol, persistence and consumers |
+| `apps/dashboard` | React dashboard built with Vite |
+| `packages/javascript-sdk` | Official npm client package `messagex-client` |
+| `messagex-launcher` | Docker-based launcher |
+| `examples` | Integration and usage examples |
+| `scripts` | Repository scripts |
+| `docs/assets` | Existing repository documentation assets |
+| `docs/site` | Independent Next.js + Fumadocs documentation site |
+
+The root `package.json` defines npm workspaces for the broker, dashboard, and JavaScript SDK. The documentation application has its own `package.json` and dependency installation; it is intentionally not added to the root workspace.
+
+## Keep work isolated
+
+- Broker, dashboard, SDK, and launcher changes should stay in their corresponding directories.
+- Documentation website code and MDX content belong in `docs/site`.
+- Existing `docs/assets` files should remain in place unless a specific asset migration is planned.
+- Avoid root package and lockfile changes for documentation-only work.

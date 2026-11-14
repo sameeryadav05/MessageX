@@ -586,6 +586,13 @@ asyncio.run(main())
         stdio: ["ignore", "pipe", "pipe"],
       });
 
+      // Register lifecycle listeners immediately: the child can exit just
+      // after printing GOT_UNACKED, before a later exit listener is attached.
+      const childExit = new Promise((resolve, reject) => {
+        p.once("exit", (code, signal) => resolve({ code, signal }));
+        p.once("error", reject);
+      });
+
       const lines = [];
       const rl = readline.createInterface({ input: p.stdout });
       rl.on("line", (line) => {
@@ -593,16 +600,41 @@ asyncio.run(main())
         console.log(`      [Python crash-test] ${line}`);
       });
 
+      p.stderr.on("data", (data) => {
+        process.stderr.write(`      [Python crash-test error] ${data}`);
+      });
+
       const wait = (prefix, ms = 15000) => new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`Timed out: ${prefix}`)), ms);
-        const poll = setInterval(() => {
-          const found = lines.find((line) => line.startsWith(prefix));
-          if (found) {
-            clearInterval(poll);
-            clearTimeout(timer);
-            resolve(found);
+        const existing = lines.find((line) => line.startsWith(prefix));
+        if (existing) return resolve(existing);
+
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error(`Timed out waiting for Python output: ${prefix}`));
+        }, ms);
+
+        const onLine = (line) => {
+          if (line.startsWith(prefix)) {
+            cleanup();
+            resolve(line);
           }
-        }, 50);
+        };
+
+        const onExit = (code, signal) => {
+          cleanup();
+          reject(new Error(
+            `Python crash-test exited before printing ${prefix} (code=${code}, signal=${signal})`
+          ));
+        };
+
+        function cleanup() {
+          clearTimeout(timer);
+          rl.off("line", onLine);
+          p.off("exit", onExit);
+        }
+
+        rl.on("line", onLine);
+        p.once("exit", onExit);
       });
 
       await wait("READY");
@@ -612,7 +644,19 @@ asyncio.run(main())
         message: { test: "disconnect-recovery" },
       });
       await wait("GOT_UNACKED");
-      await new Promise((resolve) => p.once("exit", resolve));
+
+      const exitResult = await Promise.race([
+        childExit,
+        sleep(10000).then(() => {
+          throw new Error("Python crash-test process did not exit within 10 seconds");
+        }),
+      ]);
+
+      check(
+        exitResult.code === 0,
+        `Python crash-test exited unexpectedly: ${JSON.stringify(exitResult)}`
+      );
+      console.log("      [Python crash-test] Process exited successfully");
 
       let resolveMessage;
       const got = new Promise((resolve) => { resolveMessage = resolve; });

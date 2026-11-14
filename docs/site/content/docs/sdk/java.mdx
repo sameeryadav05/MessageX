@@ -1,22 +1,70 @@
 ---
 title: Java SDK
-description: Java client availability and roadmap status.
+description: Java SDK availability, planned Maven integration, and protocol compatibility requirements.
 ---
 
 <Callout type="warn">
-  **Planned — not currently published.** The repository currently publishes the JavaScript / TypeScript SDK only.
+  **Planned — no official Java SDK is published yet.** The repository currently ships the JavaScript / TypeScript package `messagex-client` only. There is no supported Maven Central artifact or Gradle dependency.
 </Callout>
 
-There is no official Java artifact or supported Maven/Gradle dependency at this time. Do not use a guessed Maven coordinate.
+Do not add a guessed Maven coordinate or treat an independently implemented client as an official MessageX library.
 
-When a Java SDK is released, this page will cover:
+## Current status
 
-- Supported JDK versions and Maven/Gradle installation.
-- TCP connection and authentication.
-- Queue and exchange declarations.
-- Publishing and consuming messages.
-- ACK/NACK and delivery settlement.
-- Connection recovery and exception handling.
-- Protocol-version compatibility.
+A Java service can communicate with the broker only by implementing a compatible TCP client against the public protocol description. That implementation is not currently an officially supported SDK.
 
-A Java client implemented independently against the wire format is not currently an officially supported SDK.
+See [TCP protocol and framing](/docs/architecture/protocol) for protocol version 1:
+
+- Four-byte unsigned big-endian payload length.
+- UTF-8 JSON payload.
+- Command, response, and event envelopes.
+- Maximum frame payload of 1 MiB.
+
+## Planned Java package scope
+
+When the official artifact is released, this page will document:
+
+1. Supported JDK versions and Maven/Gradle installation.
+2. Typed connection configuration and credential handling.
+3. TCP connection lifecycle and CONNECT/AUTH handshake.
+4. Queue and exchange declaration/deletion.
+5. Bindings for direct, fanout, topic, and headers exchanges.
+6. JSON publishing and message headers.
+7. Consumer listeners and delivery metadata.
+8. Explicit ACK, NACK, retries, dead-letter behavior, and cancellation.
+9. Typed broker/connection/timeout exceptions.
+10. Connection recovery, compatibility matrix, and integration tests.
+
+## Planned API shape (illustrative only)
+
+This example describes a possible API, **not a released Java artifact**:
+
+```java
+// Illustrative pseudocode — no official Maven dependency exists yet.
+MessageXClient client = MessageXClient.builder()
+    .host("127.0.0.1")
+    .port(5678)
+    .username("app-user")
+    .password(System.getenv("MESSAGEX_PASSWORD"))
+    .clientName("orders-worker")
+    .build();
+
+client.connect();
+
+client.queue().declare(
+    QueueOptions.builder()
+        .name("orders")
+        .durable(true)
+        .build()
+);
+```
+
+Do not expect these classes or methods to compile against a published dependency today.
+
+## Protocol and reliability requirements
+
+The Java SDK must match the broker's frame decoder, JSON schema, request ID correlation, and asynchronous delivery events. It must preserve delivery tags and settle messages only on the connection that owns the delivery.
+
+The broker currently uses prefetch count one per connection and queue. It can redeliver unsettled messages after timeout or disconnect, so consumer code should be idempotent. The broker does not offer a distributed transaction with the application's database.
+
+Until an official Java package is released, use the supported [JavaScript / TypeScript SDK](/docs/sdk/javascript) for Node.js applications or implement a custom TCP client with explicit responsibility for protocol compatibility and reliability.

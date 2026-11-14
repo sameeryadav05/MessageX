@@ -1,70 +1,159 @@
 ---
 title: Python SDK
-description: Python SDK availability, current support status, and planned integration surface.
+description: Install and use the official asynchronous Python client for the MessageX self-hosted message broker.
 ---
 
-<Callout type="warn">
-  **Planned — no official Python SDK is published yet.** The repository currently ships the JavaScript / TypeScript package `messagex-client` only. There is no supported PyPI package or installation command.
-</Callout>
+The official MessageX Python SDK is an **asyncio TCP client** distributed on PyPI as `messagex-client`. Its import package is named `messagex`.
 
-Do not install a similarly named third-party package and assume it is maintained or compatible with this broker.
+## Availability
 
-## Current status
+The SDK source and release workflow are in this repository. The first public PyPI release is being prepared; until the release is announced, install from the `tilak` branch:
 
-A Python application can reach a MessageX TCP listener only if it implements the documented protocol itself. Such a custom client is not an officially supported MessageX SDK and must be tested against the broker's protocol version.
+```bash
+python -m pip install "git+https://github.com/sameeryadav05/MessageX.git@tilak#subdirectory=packages/python-sdk"
+```
 
-The official [TCP protocol reference](/docs/architecture/protocol) documents the frame format:
+After the package is published, install the stable distribution from PyPI:
 
-- Four-byte unsigned big-endian payload length.
-- UTF-8 JSON payload.
-- Protocol version 1 command, response, and event envelopes.
-- A maximum frame payload of 1 MiB.
+```bash
+python -m pip install messagex-client
+```
 
-## Planned Python package scope
+Requires **Python 3.9 or newer**. The package has no third-party runtime dependencies. You still need a running MessageX broker and valid broker credentials. The standard Docker deployment exposes the broker on `localhost:5678`.
 
-When an official package is released, its guide will include:
+## Quick start
 
-1. Supported Python versions and PyPI installation.
-2. Async and/or synchronous client API design.
-3. TCP connection timeout and socket lifecycle.
-4. CONNECT and AUTH handshake.
-5. Queue and exchange declaration/deletion.
-6. Direct, fanout, topic, and headers bindings.
-7. Publishing JSON-serializable messages and headers.
-8. Consumer callbacks/async iterators and delivery tags.
-9. Explicit ACK, NACK, retry, and cancellation.
-10. Typed exceptions, reconnect policy, and test coverage.
+Set credentials as environment variables rather than hard-coding them:
 
-## Planned API shape (illustrative only)
+```bash
+# Linux / macOS
+export MESSAGEX_USER="your-username"
+export MESSAGEX_PASSWORD="your-password"
+```
 
-The following is a conceptual example, **not a working package API**:
+PowerShell:
+
+```powershell
+$env:MESSAGEX_USER = "your-username"
+$env:MESSAGEX_PASSWORD = "your-password"
+```
+
+### Consumer
 
 ```python
-# Illustrative pseudocode — no official package exists yet.
-client = MessageXClient(
-    host="127.0.0.1",
-    port=5678,
-    username="app-user",
-    password=os.environ["MESSAGEX_PASSWORD"],
-)
+import asyncio
+import os
+from messagex import MessageX
 
-await client.connect()
-await client.queue.declare(name="orders", durable=True)
+async def handle(message):
+    print("Received:", message.body)
+    await message.ack()
 
+async def main():
+    async with MessageX(
+        host="127.0.0.1",
+        username=os.environ["MESSAGEX_USER"],
+        password=os.environ["MESSAGEX_PASSWORD"],
+    ) as client:
+        await client.exchange.declare("orders.exchange", "direct", durable=True)
+        await client.queue.declare("orders", durable=True)
+        await client.exchange.bind(
+            "orders.exchange", "orders", "orders.created"
+        )
+        await client.consume("orders", handle)
+        await asyncio.Event().wait()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+```
+
+### Producer
+
+```python
+import asyncio
+import os
+from messagex import MessageX
+
+async def main():
+    async with MessageX(
+        host="127.0.0.1",
+        username=os.environ["MESSAGEX_USER"],
+        password=os.environ["MESSAGEX_PASSWORD"],
+    ) as client:
+        result = await client.publish(
+            "orders.exchange",
+            {"orderId": "ORD-1001", "status": "created"},
+            routing_key="orders.created",
+        )
+        print("Routed to", result.routed_queues, "queue(s)")
+
+asyncio.run(main())
+```
+
+Run the consumer first, then run the producer in another terminal.
+
+## Core capabilities
+
+- Async connection lifecycle with context-manager support.
+- Queue and exchange declaration/deletion.
+- Direct, fanout, topic, and headers exchanges.
+- Bind and unbind operations.
+- JSON-serializable message publishing with optional headers.
+- Callback-based consumers and explicit ACK/NACK.
+- Delivery-count-based retry and dead-letter queue configuration.
+- Typed message objects, result objects, and SDK exceptions.
+- Client events for connection lifecycle, messages, warnings, and consumer errors.
+
+## Delivery handling
+
+The SDK does not automatically acknowledge messages. ACK only after successful processing:
+
+```python
 async def handle(message):
     try:
         await process_order(message.body)
         await message.ack()
-    except Exception:
+    except TemporaryError:
         await message.nack(requeue=True)
-
-await client.consume(queue_name="orders", callback=handle)
+    except Exception:
+        await message.nack(requeue=False)
+        raise
 ```
 
-Do not copy this into an application expecting it to run today.
+The broker currently uses a prefetch count of one per consumer connection. Requeued messages can be delivered more than once, so make handlers idempotent when they perform external side effects. The broker supports a maximum delivery count and a configured dead-letter queue.
 
-## Compatibility and delivery requirements
+## Connection options
 
-A future Python SDK must match the broker's framing, protocol validation, request correlation, event delivery, and delivery ownership checks. It must also document the broker's current prefetch count of one per connection and queue, and the fact that the broker does not provide a distributed transaction with application databases.
+```python
+client = MessageX(
+    host="127.0.0.1",
+    username="app-user",
+    password=os.environ["MESSAGEX_PASSWORD"],
+    port=5678,
+    client_name="billing-service",
+    connect_timeout=10.0,
+    request_timeout=15.0,
+    max_frame_size=1_048_576,
+)
+```
 
-Until the official package is released, use the supported [JavaScript / TypeScript SDK](/docs/sdk/javascript) or implement the wire protocol independently with the understanding that the custom client is your responsibility.
+Use `async with MessageX(...)` to close the connection automatically, or call `await client.connect()` and `await client.close()` for manual lifecycle management.
+
+## Important limitations
+
+- The SDK does not automatically reconnect or restore consumer subscriptions after a disconnect; the application must reconnect and subscribe again.
+- The broker TCP transport currently does not provide TLS encryption. Use a private network, VPN, or SSH tunnel for remote connections.
+- ACK/NACK does not create a distributed transaction with your application database.
+- The current consumer prefetch count is one per connection and queue.
+
+## API and examples
+
+For the complete API, configuration, error handling, recipes (including reconnect and FastAPI), and troubleshooting, see the [Python SDK README](https://github.com/sameeryadav05/MessageX/blob/tilak/packages/python-sdk/README.md).
+
+- [Python SDK source](https://github.com/sameeryadav05/MessageX/tree/tilak/packages/python-sdk)
+- [Publishing guide](https://github.com/sameeryadav05/MessageX/blob/tilak/packages/python-sdk/PUBLISHING.md)
+- [TCP protocol reference](/docs/architecture/protocol)
+- [JavaScript / TypeScript SDK](/docs/sdk/javascript)

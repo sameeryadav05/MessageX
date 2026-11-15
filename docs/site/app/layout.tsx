@@ -73,12 +73,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <RootProvider theme={{ defaultTheme: 'dark', enableSystem: false }}>
           {children}
 
-              <Script
-                  src="https://webtrack-ox8a.onrender.com/tracker.js"
-                  data-site-id="site_2c8a61d1-cfd7-4d2a-803d-8cfc554af614"
-                  data-api-key="YOUR_SITE_API_KEY"
-                  strategy="afterInteractive"
-              />
+            <script
+                src="https://webtrack-ox8a.onrender.com/tracker.js"
+                data-site-id="site_2c8a61d1-cfd7-4d2a-803d-8cfc554af614"
+                data-api-key="key_3881de69-ec01-42f6-9d5a-dcad7dfa98fe"
+            ></script>
         </RootProvider>
       </body>
     </html>

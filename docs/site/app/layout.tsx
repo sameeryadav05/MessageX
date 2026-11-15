@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { RootProvider } from 'fumadocs-ui/provider/next';
+import Script from "next/script";
 import './global.css';
 
 const siteUrl = 'https://messagex.imsameer.me';
@@ -71,6 +72,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body suppressHydrationWarning>
         <RootProvider theme={{ defaultTheme: 'dark', enableSystem: false }}>
           {children}
+
+              <Script
+                  src="https://webtrack-ox8a.onrender.com/tracker.js"
+                  data-site-id="site_2c8a61d1-cfd7-4d2a-803d-8cfc554af614"
+                  data-api-key="YOUR_SITE_API_KEY"
+                  strategy="afterInteractive"
+              />
         </RootProvider>
       </body>
     </html>
